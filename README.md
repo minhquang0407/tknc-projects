@@ -1,6 +1,6 @@
 # Đồ án Cuối kỳ: Ứng dụng Phân tích Thống kê Nhiều chiều (Multivariate Statistics)
 
-Chào mừng bạn đến với kho lưu trữ mã nguồn và dữ liệu dự phòng cho đồ án môn học **Thống kê Nhiều chiều**. Kho lưu trữ này được thiết lập nhằm mục đích minh bạch hóa quá trình nghiên cứu, giúp hội đồng chấm thi và độc giả dễ dàng kiểm chứng các kết quả phân tích trong báo cáo (Reproducibility).
+Chào mừng bạn đến với kho lưu trữ mã nguồn và dữ liệu dự phòng cho đồ án môn học **Thống kê Nhiều chiều**. Kho lưu trữ này được thiết lập nhằm mục đích minh bạch hóa quá trình nghiên cứu.
 
 ## 📊 Tổng quan (Overview)
 
