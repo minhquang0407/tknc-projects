@@ -27,14 +27,19 @@ Kho lưu trữ này được cấu trúc tương ứng với file nén nộp cho
 
 ```text
 📦 tknc-projects
- ┣ 📂 data-nhom/               # Chứa 3 bộ dữ liệu gốc định dạng CSV
+ ┣ 📂 data/               # Chứa 3 bộ dữ liệu gốc định dạng CSV
  ┃ ┣ 📜 Sleep_health_and_lifestyle_dataset.csv
  ┃ ┣ 📜 student_performance.csv
  ┃ ┗ 📜 train_FD001.txt (C-MAPSS)
+ ┃ ┗ 📜 test_FD001.txt (C-MAPSS)
  ┣ 📂 code/                    # Mã nguồn xử lý
- ┃ ┣ 📜 analysis_tknc.Rmd      # Source code chính viết bằng R Markdown
- ┃ ┗ 📜 analysis_tknc.html     # Kết quả thực thi chi tiết (Compiled output)
- ┣ 📜 NhomX-DoAn.pdf           # File báo cáo gốc định dạng PDF
+ ┃ ┣ 📜 data1.Rmd      # Source code data Sleep_health_and_lifestyle_dataset viết bằng R Markdown
+ ┃ ┣ 📜 data2.Rmd      # Source code data student_performance viết bằng R Markdown
+ ┃ ┣ 📜 data3.Rmd      # Source code data CMAPSS bằng R Markdown
+ ┃ ┗ 📜 data1.html     # Kết quả thực thi chi tiết data Sleep_health_and_lifestyle_dataset  (Compiled output)
+ ┃ ┗ 📜 data2.html     # Kết quả thực thi chi tiết data student_performance (Compiled output)
+ ┃ ┗ 📜 data3.html     # Kết quả thực thi chi tiết data CMAPSS (Compiled output)
+ ┣ 📜 DoAn.pdf           # File báo cáo gốc định dạng PDF
  ┗ 📜 README.md                # File giới thiệu này
 ```
 
