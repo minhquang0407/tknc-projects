@@ -30,8 +30,8 @@ Kho lưu trữ này được cấu trúc tương ứng với file nén nộp cho
  ┣ 📂 data/               # Chứa 3 bộ dữ liệu gốc định dạng CSV
  ┃ ┣ 📜 Sleep_health_and_lifestyle_dataset.csv
  ┃ ┣ 📜 student_performance.csv
- ┃ ┗ 📜 train_FD001.txt (C-MAPSS)
- ┃ ┗ 📜 test_FD001.txt (C-MAPSS)
+ ┃ ┗ 📜 cmapss_FD001.txt (C-MAPSS)
+ ┃ ┗ 📜 cmapss_FD001.txt (C-MAPSS)
  ┣ 📂 code/                    # Mã nguồn xử lý
  ┃ ┣ 📜 data1.Rmd      # Source code data Sleep_health_and_lifestyle_dataset viết bằng R Markdown
  ┃ ┣ 📜 data2.Rmd      # Source code data student_performance viết bằng R Markdown
