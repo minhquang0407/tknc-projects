@@ -32,13 +32,15 @@ Kho lưu trữ này được cấu trúc tương ứng với file nén nộp cho
  ┃ ┣ 📜 student_performance.csv
  ┃ ┗ 📜 cmapss_FD001.txt (C-MAPSS)
  ┃ ┗ 📜 cmapss_FD001.txt (C-MAPSS)
- ┣ 📂 code/                    # Mã nguồn xử lý
- ┃ ┣ 📜 data1.Rmd      # Source code data Sleep_health_and_lifestyle_dataset viết bằng R Markdown
- ┃ ┣ 📜 data2.Rmd      # Source code data student_performance viết bằng R Markdown
- ┃ ┣ 📜 data3.Rmd      # Source code data CMAPSS bằng R Markdown
- ┃ ┗ 📜 data1.html     # Kết quả thực thi chi tiết data Sleep_health_and_lifestyle_dataset  (Compiled output)
- ┃ ┗ 📜 data2.html     # Kết quả thực thi chi tiết data student_performance (Compiled output)
- ┃ ┗ 📜 data3.html     # Kết quả thực thi chi tiết data CMAPSS (Compiled output)
+ ┣ 📂 code/                  # Mã nguồn xử lý
+ ┃ ┣ 📜 data1.Rmd            # Source code data Sleep_health_and_lifestyle_dataset viết bằng R Markdown
+ ┃ ┣ 📜 data2.Rmd            # Source code data student_performance viết bằng R Markdown
+ ┃ ┣ 📜 data3.Rmd            # Source code data CMAPSS bằng R Markdown
+ ┃ ┣ 📜 analysis_ms.Rmd      # Source code tất cả data trong 1 viết bằng R Markdown
+ ┃ ┗ 📜 data1.html           # Kết quả thực thi chi tiết data Sleep_health_and_lifestyle_dataset  (Compiled output)
+ ┃ ┗ 📜 data2.html           # Kết quả thực thi chi tiết data student_performance (Compiled output)
+ ┃ ┗ 📜 data3.html           # Kết quả thực thi chi tiết data CMAPSS (Compiled output)
+ ┃ ┗ 📜 analysis_ms.html           # Kết quả thực thi chi tiết tất cả data trong 1  (Compiled output)
  ┣ 📜 DoAn.pdf           # File báo cáo gốc định dạng PDF
  ┗ 📜 README.md                # File giới thiệu này
 ```
