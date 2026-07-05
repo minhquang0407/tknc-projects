@@ -1,0 +1,1389 @@
+---
+title: 'Báo Cáo Tổng Hợp: Phân Tích Thống Kê Nâng Cao'
+author: 'Nhóm Nghiên Cứu'
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    theme: united
+    highlight: tango
+---
+
+```{r setup_global, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r setup_p1, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Phần 1: Phân tích Dữ liệu Sleep Health and Lifestyle
+
+## Khám phá và Tiền xử lý dữ liệu (EDA)
+
+```{r libraries_p1}
+library(tidyverse)
+library(psych)
+library(car)
+library(corrplot)
+library(biotools)
+library(rstatix)
+library(ggplot2)
+library(gridExtra)
+library(factoextra)
+```
+
+```{r load-data_p1}
+raw_data <- read.csv("SleepHealthLifestyle.csv", stringsAsFactors = FALSE)
+str(raw_data)
+summary(raw_data)
+colSums(is.na(raw_data))
+```
+
+```{r preprocess_p1}
+cleaned_data <- raw_data %>%
+  separate(Blood.Pressure, into = c("Systolic", "Diastolic"), sep = "/", convert = TRUE)
+
+cleaned_data$Gender <- as.factor(cleaned_data$Gender)
+cleaned_data$Occupation <- as.factor(cleaned_data$Occupation)
+cleaned_data$BMI.Category <- as.factor(cleaned_data$BMI.Category)
+cleaned_data$Sleep.Disorder <- as.factor(cleaned_data$Sleep.Disorder)
+```
+
+```{r plot-scaling_p1}
+num_data <- cleaned_data %>% select(Age, Sleep.Duration, Quality.of.Sleep, Physical.Activity.Level,
+                           Stress.Level, Heart.Rate, Daily.Steps, Systolic, Diastolic)
+
+unscaled_data <- num_data %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+p1 <- ggplot(unscaled_data, aes(x = Variable, y = Value, fill = Variable)) +
+  geom_boxplot(show.legend = FALSE, outlier.color = "red", outlier.size = 2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold")) +
+  labs(title = "Original data", y = "original value", x = "")
+
+scaled_data <- as.data.frame(scale(num_data))
+
+scaled_data_long <- scaled_data %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+p2 <- ggplot(scaled_data_long, aes(x = Variable, y = Value, fill = Variable)) +
+  geom_boxplot(show.legend = FALSE, outlier.color = "red", outlier.size = 2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold")) +
+  labs(title = "Scaled data", y = "scaled value", x = "")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+```{r correlation_p1}
+cor_matrix <- cor(num_data, use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "upper",
+         addCoef.col = "black", number.cex = 0.7,
+         tl.col = "black", tl.srt = 45,
+         title = "Correlation Matrix", mar = c(0,0,2,0))
+```
+
+## Đánh giá tính phù hợp của Dữ liệu và Phân tích Thành phần Chính (PCA)
+
+```{r kmo-bartlett_p1}
+kmo_results <- KMO(num_data)
+cat("KMO: ", kmo_results$MSA, "\n")
+
+bartlett_results <- cortest.bartlett(cor_matrix, n = nrow(num_data))
+print(bartlett_results)
+```
+
+```{r pca-run_p1}
+pca_model <- prcomp(scaled_data, center = TRUE, scale. = FALSE)
+summary(pca_model)
+
+eigenvalues <- pca_model$sdev^2
+plot(eigenvalues, type = "b", xlab = "PC",
+     ylab = "Eigenvalue", main = "Scree Plot",
+     col = "blue", pch = 19, lwd = 2)
+```
+
+```{r pca-vars-12_p1}
+pca_var_plot12 <- fviz_pca_var(
+  pca_model,
+  axes = c(1,2),
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+print(pca_var_plot12)
+```
+
+```{r pca-vars-34_p1}
+pca_var_plot34 <- fviz_pca_var(
+  pca_model,
+  axes = c(3,4),
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+print(pca_var_plot34)
+```
+
+```{r pca-biplot_p1}
+fviz_pca_biplot(pca_model,
+                geom.ind = "point",
+                col.ind = cleaned_data$Sleep.Disorder,
+                palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                addEllipses = TRUE,
+                legend.title = "Sleep Disorder",
+                title = "PCA Biplot: Sleep Disorder Clusters (PC1 vs PC2)",
+                col.var = "black",
+                repel = TRUE)
+```
+
+## Kiểm chứng chéo bằng Phân tích Nhân tố Khám phá (EFA)
+
+```{r efa-run_p1}
+fa.parallel(
+  scaled_data,
+  fa = "fa",
+  fm = "ml",
+  n.iter = 100
+)
+
+efa_model <- fa(
+  scaled_data,
+  nfactors = 4,
+  rotate = "varimax",
+  fm = "ml"
+)
+
+print(efa_model)
+print(efa_model$loadings, cutoff = 0.3)
+```
+
+```{r efa-plots_p1}
+loadings_matrix <- unclass(efa_model$loadings)
+corrplot(loadings_matrix, method = "color", type = "full",
+         addCoef.col = "black", number.cex = 0.8,
+         tl.col = "black", tl.srt = 45,
+         title = "EFA Factor Loadings Heatmap", mar = c(0,0,2,0),
+         col = colorRampPalette(c("#FC4E07", "white", "#00AFBB"))(200))
+
+print(efa_model$communality)
+
+comm_data <- data.frame(Variable = names(efa_model$communality),
+                        Communality = efa_model$communality)
+
+ggplot(comm_data, aes(x = reorder(Variable, Communality), y = Communality, fill = Communality)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+  coord_flip() +
+  scale_fill_gradient(low = "#E7B800", high = "#FC4E07") +
+  theme_minimal() +
+  labs(title = "EFA: Phương sai giải thích bởi nhân tố chung (Communality - h²)",
+       x = "Biến số (Variables)",
+       y = "Communality (h²)") +
+  geom_text(aes(label = round(Communality, 3)), hjust = -0.2, size = 3.5, fontface = "bold") +
+  scale_y_continuous(limits = c(0, 1.15), breaks = seq(0, 1, 0.2))
+```
+
+## Phân tích Phương sai Nhiều chiều (MANOVA)
+
+```{r manova-run_p1}
+df_manova <- data.frame(
+  Sleep.Disorder = cleaned_data$Sleep.Disorder,
+  PC1 = pca_model$x[, 1],
+  PC2 = pca_model$x[, 2],
+  PC3 = pca_model$x[, 3],
+  PC4 = pca_model$x[, 4]
+)
+
+box_m_test <- boxM(df_manova[, c("PC1", "PC2", "PC3", "PC4")], df_manova$Sleep.Disorder)
+print(box_m_test)
+
+manova_res <- manova(cbind(PC1, PC2, PC3, PC4) ~ Sleep.Disorder, data = df_manova)
+summary(manova_res, test = "Pillai")
+```
+
+```{r manova-plots_p1, fig.width=10, fig.height=8}
+df_long <- df_manova %>%
+  pivot_longer(cols = starts_with("PC"), names_to = "PC", values_to = "Score")
+
+ggplot(df_long, aes(x = Sleep.Disorder, y = Score, fill = Sleep.Disorder)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "red", outlier.size = 1.5) +
+  facet_wrap(~ PC, scales = "free_y") +
+  theme_minimal() +
+  scale_fill_manual(values = c("None" = "#00AFBB", "Insomnia" = "#E7B800", "Sleep Apnea" = "#FC4E07")) +
+  labs(title = "Phân phối Điểm số của các Thành phần chính theo Rối loạn giấc ngủ",
+       x = "Tình trạng", y = "Điểm số PC") +
+  theme(legend.position = "none",
+        strip.text = element_text(face = "bold", size = 12),
+        axis.text.x = element_text(angle = 15, hjust = 1))
+```
+
+```{r tukey-hsd_p1}
+cat("PC1 (Giấc ngủ & Căng thẳng)\n")
+print(TukeyHSD(aov(PC1 ~ Sleep.Disorder, data = df_manova)))
+
+cat("PC2 (Tim mạch & Hoạt động thể chất)\n")
+print(TukeyHSD(aov(PC2 ~ Sleep.Disorder, data = df_manova)))
+
+cat("PC3 (Vận động & tuổi tác, huyết áp)\n")
+print(TukeyHSD(aov(PC3 ~ Sleep.Disorder, data = df_manova)))
+
+cat("PC4 (Nhịp tim & hoạt động)\n")
+print(TukeyHSD(aov(PC4 ~ Sleep.Disorder, data = df_manova)))
+```
+
+
+---
+
+# Phần 2: Hành vi và Kết quả Học tập của Sinh viên
+
+```{r setup_p2, include=FALSE}
+# chunk setup
+knitr::opts_chunk$set(
+  echo       = TRUE,
+  warning    = FALSE,
+  message    = FALSE,
+  fig.align  = "center",
+  fig.width  = 6.5,
+  fig.height = 4.5,
+  out.width  = "80%",
+  dev        = "cairo_pdf"
+)
+
+```
+
+```{r libraries_p2}
+library(dplyr)
+library(tidyr)
+library(heplots)
+library(knitr)
+library(ggplot2)
+library(factoextra)
+library(clusterSim)
+library(reshape2)
+library(broom)
+library(gtsummary)
+library(kableExtra)
+library(sandwich)
+library(janitor)
+library(cluster)
+library(corrplot)
+library(lmtest)
+library(rstatix)
+library(psych)
+library(car)
+library(MVN)
+library(patchwork)
+library(moments)
+library(emmeans)
+library(effectsize)
+```
+
+
+
+
+
+# Khám phá và Tiền xử lý dữ liệu (EDA)
+
+```{r load-data_p2}
+df_raw <- read.csv("StudentHabitsPerformance.csv")
+```
+
+
+```{r summary-table_p2}
+quant_vars <- c("study_hours_per_day", "social_media_hours", "netflix_hours",
+                "sleep_hours", "attendance_percentage", "exercise_frequency",
+                "mental_health_rating", "exam_score")
+summary_df <- data.frame(
+  `Biến` = quant_vars,
+  Min    = sapply(quant_vars, function(v) round(min(df_raw[[v]], na.rm = TRUE), 2)),
+  Median = sapply(quant_vars, function(v) round(median(df_raw[[v]], na.rm = TRUE), 2)),
+  Mean   = sapply(quant_vars, function(v) round(mean(df_raw[[v]], na.rm = TRUE), 2)),
+  Max    = sapply(quant_vars, function(v) round(max(df_raw[[v]], na.rm = TRUE), 2)),
+  check.names = FALSE,
+  row.names = NULL
+)
+kable(summary_df, caption = "Tóm tắt thống kê cơ bản các biến định lượng chính")
+```
+
+```{r chunk_p2_69}
+ggplot(df_raw, aes(x = exam_score)) +
+  geom_histogram(binwidth = 5,           
+                 fill = "steelblue",     
+                 color = "black",        
+                 alpha = 0.8) +         
+  theme_minimal() +                      
+  labs(title = "Biểu đồ phân phối điểm thi (Exam Score)",
+       x = "Điểm thi",
+       y = "Số lượng học sinh")
+```
+
+
+
+```{r encode-data_p2}
+exam_score <- df_raw$exam_score
+
+df_raw$diet_quality <- factor(df_raw$diet_quality, 
+                              levels = c("Poor", "Fair", "Good"))
+df_raw$parental_education_level <- factor(df_raw$parental_education_level, 
+                                          levels = c("None", "High School", "Bachelor", "Master"))
+df_raw$internet_quality <- factor(df_raw$internet_quality, 
+                                  levels = c("Poor", "Average", "Good"))
+
+df_raw$part_time_job <- factor(df_raw$part_time_job)
+df_raw$extracurricular_participation <- factor(df_raw$extracurricular_participation)
+
+df_raw$gender <- relevel(factor(df_raw$gender), ref = "Female")
+
+df <- df_raw %>% select(-c(student_id))
+```
+
+
+
+
+
+## Đánh giá ngoại lai
+
+```{r boxplot-outliers_p2, fig.width=6.5, fig.height=5}
+create_box <- function(data, var_name, title) {
+  ggplot(data, aes(y = .data[[var_name]])) +
+    geom_boxplot(fill = "steelblue", alpha = 0.6, outlier.colour = "red", outlier.size = 2) +
+    labs(title = title, x = "", y = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+          plot.title = element_text(size = 10, face = "bold"))
+}
+
+p1 <- create_box(df_raw, "study_hours_per_day", "Giờ tự học")
+p2 <- create_box(df_raw, "social_media_hours", "Giờ MXH")
+p3 <- create_box(df_raw, "netflix_hours", "Giờ Netflix")
+p4 <- create_box(df_raw, "attendance_percentage", "Tỷ lệ chuyên cần")
+p5 <- create_box(df_raw, "sleep_hours", "Giờ ngủ")
+p6 <- create_box(df_raw, "exam_score", "Điểm thi")
+
+(p1 | p2 | p3) / 
+(p4 | p5 | p6)
+```
+
+
+```{r scatter-outliers_p2, fig.width=10, fig.height=7}
+scatter_vars <- c("study_hours_per_day", "social_media_hours",
+                  "netflix_hours", "attendance_percentage",
+                  "sleep_hours")
+
+scatter_df <- df_raw[, scatter_vars] %>%
+  mutate(exam_score = exam_score) %>%
+  pivot_longer(cols = -exam_score, names_to = "variable", values_to = "value")
+
+ggplot(scatter_df, aes(x = value, y = exam_score)) +
+  geom_point(alpha = 0.3, color = "#4E79A7", size = 1.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE, linewidth = 0.8) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3) +
+  labs(title = "Biểu đồ phân tán giữa các biến độc lập định lượng và Điểm thi",
+       x = "Giá trị biến độc lập", y = "Exam Score") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 11, face = "bold"))
+```
+
+
+
+## Phân tích tương quan
+
+```{r correlation-matrix_p2, fig.width=6.5, fig.height=5}
+df_for_cor <- df %>%
+  select(-gender, -part_time_job, -extracurricular_participation) %>%
+  mutate(exam_score = exam_score) %>%
+  mutate(
+    diet_quality = as.numeric(diet_quality),
+    parental_education_level = as.numeric(parental_education_level),
+    internet_quality = as.numeric(internet_quality)
+  )
+cor_matrix <- cor(df_for_cor, method = "spearman", use = "complete.obs")
+corrplot(cor_matrix,
+         method      = "color",
+         type        = "lower",
+         tl.col      = "black",
+         tl.cex      = 0.75,
+         addCoef.col = "black",
+         number.cex  = 0.6,
+         diag        = FALSE,
+         title       = "Ma trận tương quan Spearman",
+         mar         = c(0, 0, 1, 0))
+
+
+```
+
+
+
+```{r cor-check-table_p2}
+df_cor_check <- df %>% mutate(exam_score)
+cor_by_cell <- df_cor_check %>% group_by(part_time_job, extracurricular_participation) %>%
+  summarise(
+    n = n(),
+    r_exam_mental   = cor(exam_score, mental_health_rating,   method = "spearman"),
+    r_exam_attend   = cor(exam_score, attendance_percentage,  method = "spearman"),
+    r_mental_attend = cor(mental_health_rating, attendance_percentage, method = "spearman"),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~round(.x, 3)))
+kable(cor_by_cell, 
+      col.names = c("Part-time job", "Extracurricular", "n", 
+                    "r(exam, mental)", "r(exam, attend)", "r(mental, attend)"),
+      caption = "Tương quan Spearman giữa các biến phản hồi theo từng cell 2×2")
+```
+
+
+
+
+## Đánh giá phân phối chuẩn và giả định
+
+```{r chunk_p2_200}
+df_manova <- df
+box_m_test <- boxM(cbind(exam_score, mental_health_rating, attendance_percentage) ~ 
+                   part_time_job * extracurricular_participation, 
+                   data = df_manova)
+cat("--- Kết quả kiểm định Box's M về sự đồng nhất ma trận hiệp phương sai ---\n")
+box_m_test$p.value
+```
+
+
+
+```{r chunk_p2_211}
+mahalanobis_outliers <- df_raw %>%
+  select(exam_score, mental_health_rating, attendance_percentage) %>%
+  mahalanobis_distance() %>%
+  filter(is.outlier == TRUE)
+
+# In số lượng ngoại lai
+cat("Số lượng ngoại lai đa chiều phát hiện được:", nrow(mahalanobis_outliers))
+```
+
+
+
+```{r qqplot-residuals_p2, fig.width=6.5, fig.height=5}
+
+par(mfrow = c(1, 3))
+qqnorm(df_manova$exam_score,        main = "Q-Q: exam_score",        col = "steelblue", pch = 16, cex = 0.5)
+qqline(df_manova$exam_score,        col = "red", lwd = 1.5)
+
+qqnorm(df_manova$mental_health_rating, main = "Q-Q: mental_health_rating", col = "steelblue", pch = 16, cex = 0.5)
+qqline(df_manova$mental_health_rating, col = "red", lwd = 1.5)
+
+qqnorm(df_manova$attendance_percentage, main = "Q-Q: attendance_percentage", col = "steelblue", pch = 16, cex = 0.5)
+qqline(df_manova$attendance_percentage, col = "red", lwd = 1.5)
+par(mfrow = c(1, 1))
+```
+
+
+
+
+```{r chunk_p2_240}
+df_scaled <- df %>%
+  select(where(is.numeric)) %>% 
+  na.omit() %>% 
+  scale() %>%
+  as.data.frame()
+
+df_kmeans <- df_scaled %>% select(study_hours_per_day, social_media_hours, netflix_hours, sleep_hours, attendance_percentage) 
+
+cat("--- Chỉ số Hopkins thống kê khuynh hướng phân cụm ---\n")
+get_clust_tendency(df_kmeans, n=50, graph=FALSE)$hopkins_stat
+```
+
+
+
+## Đánh giá tính phù hợp của PCA/EFA
+
+```{r kmo-bartlett_p2}
+df_pca_check <- df %>%
+  mutate(
+    gender                   = as.numeric(gender),
+    diet_quality             = as.numeric(diet_quality),
+    parental_education_level = as.numeric(parental_education_level),
+    internet_quality         = as.numeric(internet_quality)
+  ) %>%
+  select(age, gender, study_hours_per_day, social_media_hours, netflix_hours,
+         attendance_percentage, sleep_hours, exercise_frequency,
+         mental_health_rating, diet_quality,
+         parental_education_level, internet_quality)
+
+R_spearman <- cor(df_pca_check, method = "spearman")
+
+kmo_result <- KMO(R_spearman)
+
+bartlett_result <- cortest.bartlett(R_spearman, n = nrow(df_pca_check))
+R_spearman
+kmo_result
+bartlett_result
+```
+
+# Thực hiện Phân tích các Mô hình (Model Estimation)
+
+## Phân tích phương sai đa biến (MANOVA)
+
+```{r manova-run_p2}
+manova_model <- manova(
+  cbind(exam_score, mental_health_rating, attendance_percentage) ~ 
+  part_time_job * extracurricular_participation, 
+  data = df_manova
+)
+
+model_manova_null <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ 1, data = df_manova)
+model_manova_full <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ part_time_job*extracurricular_participation, data = df_manova)
+model_manova_null
+model_manova_null
+manova_omnibus <- anova(model_manova_null, model_manova_full, test = "Wilks")
+manova_omnibus
+```
+
+
+
+## Mô hình Hồi quy Tuyến tính Đa biến (Multivariate LR)
+
+```{r mlr-omnibus_p2}
+df_mlr <- df_raw %>%
+  select(
+    exam_score, mental_health_rating, attendance_percentage,
+    
+    age, gender, study_hours_per_day, social_media_hours, netflix_hours,
+    part_time_job, sleep_hours, diet_quality, exercise_frequency,
+    parental_education_level, internet_quality, extracurricular_participation
+  )
+
+mlr_model <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ ., data = df_mlr)
+
+model_mlr_null <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ 1,
+                 data = df_mlr)
+model_mlr_full  <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ .,
+                 data = df_mlr)
+model_mlr_null
+model_mlr_full
+mlr_omnibus <- anova(model_mlr_null, model_mlr_full, test = "Wilks")
+mlr_omnibus
+```
+
+
+
+```{r type3-wilks_p2, results='hide'}
+type3_wilks <- Anova(mlr_model, type = "III", test.statistic = "Wilks")
+type3_wilks
+```
+
+
+```{r univariate-models_p2, results='hide'}
+model_exam       <- lm(exam_score ~ . - mental_health_rating - attendance_percentage, 
+                       data = df_mlr)
+
+model_mental     <- lm(mental_health_rating ~ . - exam_score - attendance_percentage, 
+                       data = df_mlr)
+
+model_attendance <- lm(attendance_percentage ~ . - exam_score - mental_health_rating, 
+                       data = df_mlr)
+
+adj_r2 <- c(
+  exam       = summary(model_exam)$adj.r.squared,
+  mental     = summary(model_mental)$adj.r.squared,
+  attendance = summary(model_attendance)$adj.r.squared
+)
+adj_r2
+```
+
+
+
+```{r vif-compute_p2, results='hide'}
+vif_vals <- vif(model_exam)
+vif_vals
+```
+
+```{r vif-summary-table_p2}
+vif_summary <- data.frame(
+  `Số biến` = length(vif_vals),
+  `VIF nhỏ nhất` = round(min(vif_vals), 3),
+  `VIF lớn nhất` = round(max(vif_vals), 3),
+  `VIF trung bình` = round(mean(vif_vals), 3),
+  check.names = FALSE
+)
+kable(vif_summary, caption = "Tóm tắt chỉ số VIF của mô hình exam_score")
+```
+
+
+```{r chunk_p2_370}
+for (model_name in c("exam_score", "mental_health", "attendance")) {
+  
+  model <- switch(model_name,
+                  "exam_score"    = model_exam,
+                  "mental_health" = model_mental,
+                  "attendance"    = model_attendance)
+  
+  par(mfrow = c(2, 2), mar = c(4, 4, 3, 1), oma = c(0, 0, 2, 0))
+  
+  plot(model, which = c(1, 2, 3, 5))
+}
+
+par(mfrow = c(1, 1))
+
+```
+```{r chunk_p2_386}
+for (model_name in c("exam_score", "mental_health", "attendance")) {
+  
+  model <- switch(model_name,
+                  "exam_score"    = model_exam,
+                  "mental_health" = model_mental,
+                  "attendance"    = model_attendance)
+  
+  cd <- cooks.distance(model)
+  influential <- which(cd > 0.5)
+  
+  obs_text <- if (length(influential) == 0) {
+    "Khong co"
+  } else {
+    paste(influential, collapse = ", ")
+  }
+  
+  cat(sprintf("%s: Cook's D > 0.5 tại obs: %s\n", model_name, obs_text))
+}
+
+```
+
+
+
+
+```{r bp-compute_p2, results='hide'}
+bp_exam       <- bptest(model_exam)
+bp_mental     <- bptest(model_mental)
+bp_attendance <- bptest(model_attendance)
+```
+
+```{r bp-table_p2}
+bp_table <- data.frame(
+  `Phương trình` = c("exam_score", "mental_health_rating", "attendance_percentage"),
+  `BP` = round(c(bp_exam$statistic, bp_mental$statistic, bp_attendance$statistic), 3),
+  df   = c(bp_exam$parameter, bp_mental$parameter, bp_attendance$parameter),
+  p    = round(c(bp_exam$p.value, bp_mental$p.value, bp_attendance$p.value), 4),
+  check.names = FALSE
+)
+kable(bp_table, caption = "Kết quả kiểm định Breusch-Pagan cho ba phương trình")
+```
+
+
+
+```{r chunk_p2_430}
+
+resid_matrix <- residuals(mlr_model)
+mah_dist <- mahalanobis(
+  x      = resid_matrix,
+  center = colMeans(resid_matrix),
+  cov    = cov(resid_matrix)
+)
+
+threshold <- qchisq(0.999, df = ncol(resid_matrix))
+cat(sprintf("Ngưỡng chi-squared (df=3, α=0.001): %.4f\n", threshold))
+
+outlier_idx <- which(mah_dist > threshold)
+cat(sprintf("Số ngoại lai đa chiều phần dư: %d\n", length(outlier_idx)))
+if (length(outlier_idx) > 0) {
+  cat("Chỉ số quan sát:", paste(outlier_idx, collapse = ", "), "\n")
+  cat("Giá trị Mahalanobis:\n")
+  print(round(sort(mah_dist[outlier_idx], decreasing = TRUE), 3))
+}
+
+par(mfrow = c(1,1))
+n <- nrow(resid_matrix)
+p <- ncol(resid_matrix)
+expected <- qchisq(ppoints(n), df = p)
+plot(sort(expected), sort(mah_dist),
+     xlab = "Quantile lý thuyết Chi-squared (df=3)",
+     ylab = "Khoảng cách Mahalanobis thực tế",
+     main = "Chi-square Q-Q Plot - Phần dư Multivariate LR",
+     pch  = 16, cex = 0.6, col = "steelblue")
+abline(0, 1, col = "red", lwd = 1.5)
+abline(h = threshold, col = "orange", lty = 2, lwd = 1.2)
+text(x = min(expected) + 0.3,
+     y = threshold + 0.5,
+     labels = sprintf("Ngưỡng α=0.001 (%.1f)", threshold),
+     col = "orange", cex = 0.8, adj = 0)
+```
+
+
+```{r reset-compute_p2, results='hide'}
+reset_exam       <- resettest(model_exam,       power = 2:3, type = "fitted")
+reset_mental     <- resettest(model_mental,     power = 2:3, type = "fitted")
+reset_attendance <- resettest(model_attendance, power = 2:3, type = "fitted")
+reset_attendance
+```
+
+```{r reset-table_p2}
+reset_table <- data.frame(
+  `Phương trình` = c("exam_score", "mental_health_rating", "attendance_percentage"),
+  RESET = round(c(reset_exam$statistic, reset_mental$statistic, reset_attendance$statistic), 3),
+  df1   = c(reset_exam$parameter[1], reset_mental$parameter[1], reset_attendance$parameter[1]),
+  df2   = c(reset_exam$parameter[2], reset_mental$parameter[2], reset_attendance$parameter[2]),
+  p     = signif(c(reset_exam$p.value, reset_mental$p.value, reset_attendance$p.value), 3),
+  check.names = FALSE
+)
+kable(reset_table, caption = "Kết quả kiểm định Ramsey RESET cho ba phương trình")
+```
+
+
+
+
+
+
+```{r std-model_p2, results='hide'}
+df_standardized <- df %>% mutate(exam_score)
+
+numeric_vars <- c("exam_score", "mental_health_rating", "attendance_percentage", 
+                  "age", "study_hours_per_day", "social_media_hours", 
+                  "netflix_hours", "sleep_hours", "exercise_frequency")
+
+df_standardized[numeric_vars] <- scale(df_standardized[numeric_vars])
+
+model_std <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ ., data = df_standardized)
+res <- residuals(model_std)
+res
+```
+
+
+
+## Phân cụm K-Means
+
+```{r kmeans-elbow_p2, fig.width=6.5, fig.height=4}
+set.seed(42)
+fviz_nbclust(df_kmeans, kmeans, method="wss")
+```
+
+```{r kmeans-eval-table_p2}
+set.seed(123)
+km_2 <- kmeans(df_kmeans, centers = 2, nstart = 25, iter.max=100)
+km_3 <- kmeans(df_kmeans, centers = 3, nstart = 25, iter.max=100)
+km_4 <- kmeans(df_kmeans, centers = 4, nstart = 25, iter.max=100)
+set.seed(42)
+km_8 <- kmeans(df_kmeans, centers = 8, nstart = 25, iter.max=100)
+
+# Tính các chỉ số đánh giá
+eval_k <- data.frame(
+  k = c(2, 3, 4, 8),
+  WSS = round(c(km_2$tot.withinss, km_3$tot.withinss, km_4$tot.withinss, km_8$tot.withinss), 1),
+  `Davies-Bouldin` = round(c(
+    index.DB(df_kmeans, km_2$cluster)$DB,
+    index.DB(df_kmeans, km_3$cluster)$DB,
+    index.DB(df_kmeans, km_4$cluster)$DB,
+    index.DB(df_kmeans, km_8$cluster)$DB
+  ), 3),
+  `Calinski-Harabasz` = round(c(
+    index.G1(df_kmeans, km_2$cluster),
+    index.G1(df_kmeans, km_3$cluster),
+    index.G1(df_kmeans, km_4$cluster),
+    index.G1(df_kmeans, km_8$cluster)
+  ), 1),
+  Silhouette = round(c(
+    mean(silhouette(km_2$cluster, dist(df_kmeans))[, "sil_width"]),
+    mean(silhouette(km_3$cluster, dist(df_kmeans))[, "sil_width"]),
+    mean(silhouette(km_4$cluster, dist(df_kmeans))[, "sil_width"]),
+    mean(silhouette(km_8$cluster, dist(df_kmeans))[, "sil_width"])
+  ), 3),
+  check.names = FALSE
+)
+kable(eval_k, caption = "So sánh các chỉ số đánh giá phân cụm theo số cụm k")
+```
+
+
+
+```{r kmeans-profile_p2}
+set.seed(123)
+kmeans_res <- kmeans(df_kmeans, centers=3, nstart=25, iter.max=100)
+
+df_profile <- df_raw
+df_profile$Cluster <- as.factor(kmeans_res$cluster)
+
+cluster_profile <- df_profile %>%
+  group_by(Cluster) %>%
+  summarise(
+    `Số lượng` = n(),
+    `Học tập (giờ/ngày)`  = round(mean(study_hours_per_day, na.rm = TRUE), 2),
+    `MXH (giờ/ngày)`      = round(mean(social_media_hours, na.rm = TRUE), 2),
+    `Netflix (giờ/ngày)`  = round(mean(netflix_hours, na.rm = TRUE), 2),
+    `Giấc ngủ (giờ/ngày)` = round(mean(sleep_hours, na.rm = TRUE), 2),
+    `Vận động (lần/tuần)` = round(mean(as.numeric(exercise_frequency), na.rm = TRUE), 2),
+    `Điểm thi TB` = round(mean(exam_score, na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+kable(cluster_profile, caption = "Thống kê mô tả (Profile) của các cụm K-Means (k=3)")
+```
+
+Kết quả phân cụm K-means (k=3) đã trích xuất 3 profile hành vi đặc trưng:
+
+(1) Nhóm có xu hướng 'Nỗ lực cao' với chiến lược học tập cường độ lớn, chấp nhận đánh đổi giấc ngủ để tối đa hóa điểm thi.
+
+(2) Nhóm có xu hướng 'Trì hoãn' với đặc trưng tiêu thụ truyền thông số (MXH, Netflix) cao, thời lượng học thấp, dẫn đến kết quả học tập và trạng thái tinh thần đều kém nhất.
+
+(3) Nhóm có xu hướng 'Cân bằng' thể hiện sự kỷ luật trong việc hạn chế màn hình, duy trì thời gian học và ngủ hợp lý, từ đó đạt được trạng thái tinh thần tốt nhất cùng mức điểm khá.
+
+**Lưu ý:** Chỉ số Hopkins H \approx 1 phản ánh dữ liệu có xu hướng phân cụm (tức là không phân phối hoàn toàn đồng nhất ngẫu nhiên), nhưng không đảm bảo các cụm tách biệt rõ ràng. Silhouette = 0.132 xác nhận các cụm tồn tại nhưng có sự giao thoa lớn. Hai chỉ số đo hai khía cạnh khác nhau và không mâu thuẫn.
+
+**Đánh giá hiệu quả phân cụm (One-way ANOVA) và đặc tính của dữ liệu**
+
+Để kiểm định xem điểm thi có phân hóa có ý nghĩa thống kê giữa 3 cụm hành vi hay không, kiểm định One-way ANOVA được thực hiện:
+
+- **$H_0$**: Điểm thi trung bình là đồng nhất giữa tất cả 3 cụm - $\mu_1 = \mu_2 = \mu_3$.
+
+- **$H_1$**: Tồn tại ít nhất một cặp cụm có điểm thi trung bình khác nhau có ý nghĩa thống kê.
+
+```{r anova-cluster-compute_p2, results='hide'}
+anova_cluster <- aov(exam_score ~ Cluster, data = df_profile)
+anova_summary <- summary(anova_cluster)
+anova_summary
+```
+
+
+```{r tukey-compute_p2}
+tukey <- TukeyHSD(anova_cluster)
+tukey
+```
+
+```{r tukey-table_p2}
+tukey_df <- as.data.frame(tukey$Cluster)
+tukey_df$comparison <- rownames(tukey_df)
+kable(tukey_df[, c("comparison", "diff", "p adj")], 
+      col.names = c("Cặp so sánh", "Chênh lệch điểm thi", "p"),
+      caption = "Chênh lệch điểm thi trung bình giữa các cụm (Tukey HSD)")
+```
+
+
+
+---
+
+# Phần 3: Phân tích Thống kê Đa chiều (C-MAPSS)
+
+```{r setup_p3, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Phần 3: Dự báo Suy thoái Động cơ Máy bay C-MAPSS (PCA, EFA, GMM, MULTIPLE REGRESSION)
+**DATASET**: C-MAPSS FD001 (Run-to-Failure)
+
+## Cài đặt các gói cần thiết
+```{r load-libraries-install_p3}
+# install.packages(c("tidyverse", "psych", "mclust", "corrplot", "Metrics", "zoo", "factoextra", "reshape2", "MVN"))
+```
+
+```{r load-libraries_p3}
+library(tidyverse)
+library(psych)
+library(mclust)
+library(corrplot)
+library(Metrics)
+library(zoo)
+library(factoextra)
+library(reshape2)
+library(MASS)  # Phân tích Biệt thức (LDA/QDA)
+```
+
+## Khám phá Đặc trưng Cơ học (EDA)
+
+### Đọc Dữ liệu Train và Test
+Bộ dữ liệu C-MAPSS cung cấp tập `cmapss_FD001.txt` và `cmapss_test_FD001.txt`. Để đánh giá độ chính xác của dự báo (RMSE) một cách công bằng nhất, ta phải huấn luyện mô hình trên tập Train và kiểm tra sai số trên tập Test.
+
+```{r load-data_p3}
+train_path <- "CMAPSSData/cmapss_train_FD001.txt"
+test_path  <- "CMAPSSData/cmapss_test_FD001.txt"
+rul_path   <- "CMAPSSData/RUL_FD001.txt"
+
+df_train <- read.table(train_path, header = FALSE)
+df_test  <- read.table(test_path, header = FALSE)
+true_rul <- read.table(rul_path, header = FALSE)
+
+colnames_df <- c("engine_id", "cycle", "op1", "op2", "op3", paste0("S", 1:21))
+colnames(df_train) <- colnames_df
+colnames(df_test)  <- colnames_df
+
+# Chọn 14 biến cảm biến có ích (bỏ các biến tĩnh)
+useful_sensors <- c("S2", "S3", "S4", "S7", "S8", "S9", "S11", 
+                    "S12", "S13", "S14", "S15", "S17", "S20", "S21")
+df_train <- df_train[, c("engine_id", "cycle", useful_sensors)]
+df_test  <- df_test[, c("engine_id", "cycle", useful_sensors)]
+
+# Tính RUL cho tập Train
+df_train <- df_train %>%
+  group_by(engine_id) %>%
+  mutate(RUL = max(cycle) - cycle,
+         RUL = ifelse(RUL > 125, 125, RUL)) %>%
+  ungroup()
+```
+
+Trực quan hóa đường cong RUL (Piecewise Linear Degradation) của động cơ số 1 để thấy rõ việc cắt trần ở 125 chu kỳ:
+```{r plot-rul_p3, fig.width=8, fig.height=4}
+ggplot(df_train %>% filter(engine_id == 1), aes(x = cycle, y = RUL)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_hline(yintercept = 125, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Hàm Piecewise Linear RUL (Động cơ số 1)",
+       subtitle = "Giới hạn RUL tối đa ở 125 chu kỳ vì ở giai đoạn đầu động cơ chưa suy thoái",
+       x = "Số chu kỳ hoạt động (Cycle)",
+       y = "Vòng đời còn lại (RUL)")
+```
+
+### Tổng quan Dữ liệu
+```{r eda-summary_p3}
+summary(df_train[, useful_sensors])
+```
+
+Sự chênh lệch về mặt đơn vị đo lường (scale) giữa các cảm biến là rất lớn (ví dụ S9 có giá trị hàng ngàn, trong khi S11 chỉ ở mức đơn vị). Ta có thể thấy rõ qua biểu đồ hộp (Boxplot) sau:
+
+```{r eda-boxplot-raw_p3, fig.width=10, fig.height=5}
+df_train %>%
+  dplyr::select(all_of(useful_sensors)) %>%
+  pivot_longer(cols = everything(), names_to = "Sensor", values_to = "Value") %>%
+  ggplot(aes(x = Sensor, y = Value, fill = Sensor)) +
+  geom_boxplot(outlier.size = 0.5, outlier.color = "red", alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Phân phối dữ liệu gốc của 14 Cảm biến (Trước khi Chuẩn hóa)",
+       subtitle = "Sự chênh lệch khổng lồ về thang đo đòi hỏi bắt buộc phải sử dụng Z-score trước khi chạy thuật toán PCA",
+       x = "Cảm biến",
+       y = "Giá trị đo lường") +
+  theme(legend.position = "none")
+```
+
+### Tín hiệu thô của 4 cảm biến tiêu biểu
+Trực quan hóa tín hiệu gốc cho thấy xu hướng suy thoái bị vùi lấp dưới lớp nhiễu tần số cao.
+```{r eda-raw-signals_p3, fig.width=10, fig.height=6}
+df_engine1 <- df_train %>% filter(engine_id == 1)
+df_raw_long <- df_engine1 %>%
+  dplyr::select(cycle, S2, S4, S7, S11) %>%
+  pivot_longer(-cycle, names_to = "Sensor", values_to = "Value")
+
+ggplot(df_raw_long, aes(x = cycle, y = Value)) +
+  geom_line(alpha = 0.7, color = "steelblue") +
+  facet_wrap(~ Sensor, scales = "free_y", ncol = 2) +
+  theme_minimal() +
+  labs(title = "Tín hiệu thô của 4 cảm biến tiêu biểu (Động cơ #1)",
+       subtitle = "Xu hướng suy thoái đơn điệu bị vùi dưới nhiễu tần số cao",
+       x = "Chu kỳ (Cycle)", y = "Giá trị cảm biến")
+```
+
+### Ma trận Tương quan (Correlation Matrix)
+Phân tích tương quan cho thấy nhiều cảm biến có mức tương quan rất cao (Đa cộng tuyến), chứng tỏ dữ liệu phù hợp để nén chiều bằng PCA.
+```{r eda-correlation_p3, fig.width=8, fig.height=7}
+cor_matrix_eda <- cor(df_train[, useful_sensors])
+corrplot(cor_matrix_eda, method = "color", type = "upper",
+         tl.cex = 0.8, tl.col = "black", addCoef.col = "black", number.cex = 0.6,
+         title = "Ma trận Tương quan giữa 14 cảm biến",
+         mar = c(0, 0, 2, 0))
+```
+
+## Tiền xử lý Dữ liệu
+
+### Chuẩn hóa Min-Max & Boxplot
+Vẽ Boxplot biểu diễn sự phân tán của 14 cảm biến (Sau khi chuẩn hóa Min-Max):
+```{r preprocessing-minmax_p3}
+train_min <- apply(df_train[, useful_sensors], 2, min)
+train_max <- apply(df_train[, useful_sensors], 2, max)
+
+scale_minmax <- function(data, min_vals, max_vals) {
+  scaled <- scale(data, center = min_vals, scale = max_vals - min_vals)
+  return(as.data.frame(scaled))
+}
+
+df_train[, useful_sensors] <- scale_minmax(df_train[, useful_sensors], train_min, train_max)
+df_test[, useful_sensors]  <- scale_minmax(df_test[, useful_sensors], train_min, train_max)
+
+# Vẽ Boxplot
+df_melt <- melt(df_train[, useful_sensors])
+ggplot(df_melt, aes(x=variable, y=value, fill=variable)) +
+  geom_boxplot(alpha=0.7, outlier.size=0.5) +
+  theme_minimal() +
+  labs(title="Boxplot 14 biến cảm biến (Sau chuẩn hóa Min-Max)", x="Cảm biến", y="Giá trị") +
+  theme(legend.position="none")
+```
+
+### Lọc khử nhiễu (Moving Average và Kalman Filter)
+Định nghĩa hàm lọc và áp dụng cho từng động cơ độc lập.
+```{r preprocessing-filters_p3}
+# Hàm lọc Moving Average (cửa sổ w = 30) để thấy rõ độ trễ (lag)
+apply_ma <- function(x, w=30) {
+  res <- zoo::rollmean(x, k=w, fill=NA, align="right")
+  res[is.na(res)] <- x[is.na(res)]
+  return(res)
+}
+
+# Hàm lọc Kalman (1D cơ bản)
+apply_kalman <- function(x) {
+  n <- length(x)
+  if (n == 0) return(x)
+  xhat <- numeric(n)
+  P <- numeric(n)
+  Q <- 1e-4
+  R <- 0.001 # Giảm nhiễu đo lường để bám sát thực tế hơn, tránh bị trễ pha
+  xhat[1] <- x[1]
+  P[1] <- 1.0
+  for(k in 2:n) {
+    x_minus <- xhat[k-1]
+    P_minus <- P[k-1] + Q
+    K <- P_minus / (P_minus + R)
+    xhat[k] <- x_minus + K * (x[k] - x_minus)
+    P[k] <- (1 - K) * P_minus
+  }
+  return(xhat)
+}
+
+# Lọc tập Train
+df_train_ma <- df_train %>% group_by(engine_id) %>% mutate(across(starts_with("S"), apply_ma)) %>% ungroup()
+df_train_kf <- df_train %>% group_by(engine_id) %>% mutate(across(starts_with("S"), apply_kalman)) %>% ungroup()
+
+# Lọc tập Test
+df_test_ma <- df_test %>% group_by(engine_id) %>% mutate(across(starts_with("S"), apply_ma)) %>% ungroup()
+df_test_kf <- df_test %>% group_by(engine_id) %>% mutate(across(starts_with("S"), apply_kalman)) %>% ungroup()
+```
+
+### So sánh trực quan: Raw vs Moving Average vs Kalman Filter
+Minh họa lợi thế của Kalman Filter so với Moving Average trên cùng 1 cảm biến.
+```{r compare-filters_p3, fig.width=10, fig.height=5}
+df_compare <- data.frame(
+  Cycle = df_train %>% filter(engine_id == 1) %>% pull(cycle),
+  Raw    = df_train %>% filter(engine_id == 1) %>% pull(S4),
+  MA     = df_train_ma %>% filter(engine_id == 1) %>% pull(S4),
+  Kalman = df_train_kf %>% filter(engine_id == 1) %>% pull(S4)
+) %>%
+  pivot_longer(-Cycle, names_to = "Method", values_to = "Value")
+
+ggplot(df_compare, aes(x = Cycle, y = Value, color = Method)) +
+  geom_line(alpha = 0.8) +
+  theme_minimal() +
+  labs(title = "So sánh lọc nhiễu: Raw vs Moving Average vs Kalman Filter",
+       subtitle = "Sensor S4, Động cơ #1 — Kalman bám sát hơn, MA bị trễ pha",
+       x = "Chu kỳ", y = "Giá trị cảm biến (Min-Max)")
+```
+
+### Kiểm định Phân phối Chuẩn Nhiều chiều (Multivariate Normality — Mardia's Test)
+PCA và GMM đều dựa trên giả định phân phối chuẩn. Sử dụng kiểm định Mardia (Skewness + Kurtosis đa chiều) từ gói `psych`.
+```{r mvn-test_p3, fig.width=6, fig.height=5}
+# Lấy mẫu ngẫu nhiên 2000 dòng để tính toán nhanh hơn
+set.seed(42)
+df_mvn_sample <- df_train_kf[sample(nrow(df_train_kf), 2000), useful_sensors]
+
+# Kiểm định Mardia (psych package) vẽ sẵn QQ-Plot
+mardia_res <- mardia(df_mvn_sample)
+print(mardia_res)
+```
+
+
+## Kiểm định KMO, Bartlett và Parallel Analysis
+
+### Kiểm định KMO và Bartlett's Test
+Kiểm định trên tập Train để chứng minh sự hiện diện của "Đa cộng tuyến" và mức độ phù hợp của dữ liệu trước khi chạy PCA.
+```{r check-assumptions_p3}
+cat("\n--- KIỂM ĐỊNH KMO & BARTLETT ---\n")
+cor_matrix <- cor(df_train[, useful_sensors])
+
+bartlett_res <- cortest.bartlett(cor_matrix, n = nrow(df_train))
+cat("Bartlett's Test p-value:", bartlett_res$p.value, "\n")
+
+kmo_res <- KMO(cor_matrix)
+cat("KMO Overall:", kmo_res$MSA, "\n")
+```
+
+
+
+## Phân tích Thành phần Chính (PCA)
+Áp dụng PCA trên tập Train, sau đó dùng mô hình PCA đó để project (chuyển đổi) tập Test.
+```{r do-pca_p3}
+cat("\n--- PHÂN TÍCH THÀNH PHẦN CHÍNH (PCA) ---\n")
+pca_ma <- prcomp(df_train_ma[, useful_sensors], center = TRUE, scale. = TRUE)
+pca_kf <- prcomp(df_train_kf[, useful_sensors], center = TRUE, scale. = TRUE)
+
+df_train$PC1_MA <- pca_ma$x[, 1]
+df_train$PC1_KF <- pca_kf$x[, 1]
+
+# Căn chỉnh dấu PC1 sao cho tương quan thuận với RUL
+if(cor(df_train$PC1_MA, df_train$RUL) < 0) { pca_ma$rotation <- -pca_ma$rotation; df_train$PC1_MA <- -df_train$PC1_MA }
+if(cor(df_train$PC1_KF, df_train$RUL) < 0) { pca_kf$rotation <- -pca_kf$rotation; df_train$PC1_KF <- -df_train$PC1_KF }
+
+# Transform tập Test sang không gian PC1
+df_test$PC1_MA <- predict(pca_ma, newdata = df_test_ma[, useful_sensors])[, 1]
+df_test$PC1_KF <- predict(pca_kf, newdata = df_test_kf[, useful_sensors])[, 1]
+```
+
+### Trực quan hóa PCA (Screeplot, Biplot, Loadings)
+Vẽ đồ thị Screeplot để xác định số lượng thành phần chính (PC) nên giữ lại.
+```{r pca-plots_p3, fig.width=10, fig.height=5}
+# Screeplot
+fviz_eig(pca_kf, addlabels = TRUE, ylim = c(0, 100), 
+         title = "Scree Plot - Tỷ lệ phương sai giải thích (Kalman Filter)")
+
+# Đồ thị biến (Variables plot)
+fviz_pca_var(pca_kf,
+             col.var = "contrib", # Màu sắc dựa trên mức độ đóng góp
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE,        # Tránh chữ đè lên nhau
+             title = "PCA - Trọng số các biến (Variables)")
+
+# Đồ thị các quan sát (Individuals plot)
+# Tô màu các điểm (quan sát) theo vòng đời còn lại (RUL)
+# Tránh lag do có >20,000 điểm nên chỉ dùng điểm, không dùng text (geom="point")
+fviz_pca_ind(pca_kf, 
+             geom = "point",
+             col.ind = df_train$RUL, 
+             gradient.cols = c("#FC4E07", "#E7B800", "#00AFBB"), # Đỏ (sắp hỏng) tới Xanh (còn tốt)
+             alpha.ind = 0.5,
+             legend.title = "RUL",
+             title = "PCA - Phân bố các quan sát (Individuals)")
+
+# Đồ thị Biplot kết hợp (Biplot)
+fviz_pca_biplot(pca_kf, 
+                geom.ind = "point",
+                col.ind = "gray",      # Điểm quan sát màu xám
+                alpha.ind = 0.1,       # Mờ để nổi bật biến
+                col.var = "contrib",   # Biến đổi màu theo độ đóng góp
+                gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+                repel = TRUE,
+                title = "PCA Biplot - Kết hợp Quan sát và Biến")
+```
+### Parallel Analysis (Xác định số PC tối ưu bằng phương pháp thống kê)
+Parallel Analysis so sánh trị riêng thực với trị riêng giả (random) để xác định khách quan bao nhiêu PC nên giữ lại.
+```{r parallel-analysis_p3, fig.width=8, fig.height=5}
+fa.parallel(df_train[, useful_sensors], fa = "pc", n.iter = 100,
+            main = "Parallel Analysis - Xác định số lượng PC tối ưu")
+```
+### Loadings Barplot (Trọng số của 3 Thành phần Chính)
+```{r loadings-barplot_p3, fig.width=10, fig.height=5}
+loadings_df <- as.data.frame(pca_kf$rotation[, 1:3])
+loadings_df$Sensor <- rownames(loadings_df)
+loadings_long <- pivot_longer(loadings_df, -Sensor, names_to = "PC", values_to = "Loading")
+
+ggplot(loadings_long, aes(x = Sensor, y = Loading, fill = PC)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(title = "Trọng số (Loadings) của 3 Thành phần Chính đầu tiên",
+       x = "Cảm biến", y = "Trọng số") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+## Phân tích Quỹ đạo và Cảnh báo sớm (Mahalanobis Distance)
+
+Trong thực tế, ta cần theo dõi xu hướng suy thoái của động cơ và phát hiện các dấu hiệu bất thường sớm. Trục PC1 sau khi lọc bằng Kalman Filter ($PC1\_KF$) đóng vai trò như một **Chỉ số Sức khỏe (Health Index)** liên tục.
+
+### Quỹ đạo Chỉ số Sức khỏe của 5 động cơ ngẫu nhiên
+```{r trajectory-plot_p3, fig.width=8, fig.height=4}
+df_5_engines <- df_train %>% filter(engine_id %in% 1:5)
+ggplot(df_5_engines, aes(x = cycle, y = PC1_KF, color = as.factor(engine_id))) +
+  geom_line(size = 1, alpha = 0.8) +
+  theme_minimal() +
+  labs(title = "Quỹ đạo Chỉ số Sức khỏe (PC1 Kalman) của 5 động cơ ngẫu nhiên",
+       x = "Số chu kỳ hoạt động (Cycle)",
+       y = "Chỉ số Sức khỏe (PC1 Kalman)",
+       color = "Engine ID")
+```
+
+### Đường cong Cảnh báo sớm dựa trên Khoảng cách Mahalanobis đa chiều
+Bằng cách đo lường khoảng cách Mahalanobis $D_M$ của các quan sát hiện tại so với trạng thái khỏe mạnh (30 chu kỳ đầu), ta có thể kích hoạt cảnh báo khi hệ thống lệch khỏi quỹ đạo bình thường.
+
+```{r mahalanobis-plot_p3, fig.width=8, fig.height=4}
+# Trích xuất PC2, PC3 từ mô hình PCA để dùng cho Mahalanobis đa chiều
+pca_proj <- predict(pca_kf, df_train_kf[, useful_sensors])
+df_train$PC2 <- pca_proj[, 2]
+df_train$PC3 <- pca_proj[, 3]
+
+# Khởi tạo trạng thái "Khỏe mạnh" (Healthy state) là 30 chu kỳ đầu tiên của tất cả động cơ
+healthy_data <- df_train %>% filter(cycle <= 30) %>% dplyr::select(PC1_KF, PC2, PC3)
+healthy_mean <- colMeans(healthy_data)
+healthy_cov <- cov(healthy_data)
+
+# Tính khoảng cách Mahalanobis cho động cơ 1 và 2 để làm mẫu cảnh báo sớm
+df_mhd <- df_train %>% filter(engine_id %in% 1:2)
+df_mhd$Mahalanobis <- mahalanobis(df_mhd[, c("PC1_KF", "PC2", "PC3")], center = healthy_mean, cov = healthy_cov)
+
+ggplot(df_mhd, aes(x = cycle, y = Mahalanobis, color = as.factor(engine_id))) +
+  geom_line(size = 1) +
+  geom_hline(yintercept = 10, linetype = "dashed", color = "red", size = 1) + 
+  theme_minimal() +
+  labs(title = "Đường cong Cảnh báo sớm dựa trên Khoảng cách Mahalanobis đa chiều",
+       subtitle = "Đo lường sự sai lệch thống kê so với phân phối của động cơ khỏe mạnh (30 chu kỳ đầu)",
+       x = "Số chu kỳ hoạt động (Cycle)",
+       y = "Khoảng cách Mahalanobis (D_M)",
+       color = "Engine ID") +
+  annotate("text", x = 50, y = 12, label = "Ngưỡng cảnh báo nguy hiểm", color = "red")
+```
+
+### Biểu đồ Kiểm soát Hotelling T² (Multivariate Control Chart)
+Thay vì dùng ngưỡng tùy chọn như Mahalanobis, Hotelling T² tính ngưỡng giới hạn kiểm soát trên (UCL) một cách chính xác dựa trên phân phối F (mức ý nghĩa $\alpha = 0.05$). Cụ thể trong trường hợp này, UCL được hệ thống xác định ở mức $7.83$.
+```{r hotelling-t2_p3, fig.width=8, fig.height=4}
+p <- 3  # Số biến (PC1, PC2, PC3)
+n_healthy <- nrow(healthy_data)
+
+# Tính T² cho động cơ 1
+engine1_pcs <- df_train %>% filter(engine_id == 1) %>% dplyr::select(PC1_KF, PC2, PC3)
+T2 <- mahalanobis(engine1_pcs, center = healthy_mean, cov = healthy_cov)
+
+# Ngưỡng UCL dựa trên phân phối F (mức ý nghĩa 5%)
+alpha_test <- 0.05
+UCL <- (p * (n_healthy + 1) * (n_healthy - 1)) /
+       (n_healthy * (n_healthy - p)) * qf(1 - alpha_test, p, n_healthy - p)
+
+df_t2 <- data.frame(Cycle = df_train %>% filter(engine_id == 1) %>% pull(cycle),
+                     T2 = T2)
+
+ggplot(df_t2, aes(x = Cycle, y = T2)) +
+  geom_line(color = "steelblue", size = 0.8) +
+  geom_hline(yintercept = UCL, linetype = "dashed", color = "red", size = 1) +
+  annotate("text", x = 20, y = UCL + 5,
+           label = paste0("UCL (α = 0.05) = ", round(UCL, 2)), color = "red") +
+  theme_minimal() +
+  labs(title = "Biểu đồ Kiểm soát Hotelling T² (Multivariate Control Chart)",
+       subtitle = "Động cơ #1 — Ngưỡng dựa trên phân phối F, không phải chọn tùy tiện",
+       x = "Chu kỳ hoạt động", y = "Hotelling T²")
+cat(sprintf("Ngưỡng UCL (alpha = 0.05): %.2f\n", UCL))
+```
+
+## Phân tích Nhân tố Khám phá (EFA)
+```{r do-efa_p3}
+cat("\n--- PHÂN TÍCH NHÂN TỐ KHÁM PHÁ (EFA) ---\n")
+efa_res <- fa(df_train_ma[, useful_sensors], nfactors = 2, rotate = "varimax", fm = "ml")
+print(efa_res$loadings, cutoff = 0.3)
+```
+
+### Phân tích Communality (Mức độ giải thích của Nhân tố chung)
+Communality đo tỷ lệ phương sai của mỗi biến được giải thích bởi các nhân tố chung. Biến có communality > 0.5 được giải thích tốt.
+```{r communality_p3, fig.width=8, fig.height=5}
+cat("Communality (Phần phương sai được giải thích bởi nhân tố chung):\n")
+print(round(efa_res$communality, 3))
+
+comm_df <- data.frame(Sensor = names(efa_res$communality),
+                      Communality = efa_res$communality)
+ggplot(comm_df, aes(x = reorder(Sensor, -Communality), y = Communality, fill = Communality)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "red") +
+  scale_fill_gradient(low = "#FC4E07", high = "#00AFBB") +
+  theme_minimal() +
+  labs(title = "Communality: Mức độ biến được giải thích bởi Nhân tố chung",
+       subtitle = "Đường đỏ: Ngưỡng chấp nhận (0.5)",
+       x = "Cảm biến", y = "Communality") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Phân cụm GMM và Phân tích Biệt thức
+
+### Đánh giá GMM bằng mclust (So sánh BIC)
+```{r do-gmm_p3}
+cat("\n--- ĐÁNH GIÁ GMM BẰNG TIÊU CHUẨN BIC ---\n")
+# GMM trên không gian PC1 (MA vs Kalman)
+gmm_ma <- Mclust(df_train$PC1_MA, G = 3)
+gmm_kf <- Mclust(df_train$PC1_KF, G = 3)
+
+cat(sprintf("BIC của GMM trên 1 biến PC1 (MA): %.2f\n", max(gmm_ma$bic, na.rm=TRUE)))
+cat(sprintf("BIC của GMM trên 1 biến PC1 (Kalman): %.2f\n", max(gmm_kf$bic, na.rm=TRUE)))
+```
+
+### Trực quan hóa 3 phân lớp suy thoái của GMM
+Ta vẽ biểu đồ thể hiện sự suy thoái của Chỉ số Sức khỏe (PC1_KF) theo chu kỳ (Cycle), đồng thời tô màu 3 giai đoạn (Cụm) do GMM tự động học được.
+```{r gmm-plot_p3, fig.width=10, fig.height=6}
+# Lấy mẫu 1 động cơ để vẽ (Ví dụ engine_id = 1)
+engine_sample <- df_train %>% filter(engine_id == 1)
+
+# Do GMM label là 1, 2, 3 nhưng chưa chắc thứ tự đã theo độ hỏng, 
+# ta map màu trực tiếp từ classification
+engine_sample$GMM_Class <- as.factor(gmm_kf$classification[df_train$engine_id == 1])
+
+ggplot(engine_sample, aes(x = cycle, y = PC1_KF, color = GMM_Class)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_line(color = "gray50", linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "Gaussian Mixture Model - Tự động nhận diện 3 pha suy thoái (Kalman PC1)",
+       subtitle = "Engine ID = 1",
+       x = "Số chu kỳ (Cycle)",
+       y = "Chỉ số Sức khỏe (PC1 Kalman)",
+       color = "Cụm GMM") +
+  scale_color_brewer(palette = "Set1")
+```
+
+> **Giải thích Thống kê học:**
+> Bạn không thể so sánh trực tiếp BIC của không gian 14 chiều với BIC của không gian 1 chiều, do hàm log-likelihood (tích phân xác suất) nằm trong các thể tích không gian khác nhau. Sự so sánh khoa học nhất là so sánh chất lượng phân cụm của **GMM trên PC1\_MA** và **GMM trên PC1\_KF**.
+> Với package `mclust`, BIC càng lớn càng tốt. Nếu BIC của Kalman cao hơn, chứng tỏ nó khử nhiễu ưu việt hơn, giúp dữ liệu tụ vào 3 cụm (Safe, Degradation, Critical) sắc nét hơn.
+
+### BIC Model Selection (Tìm số cụm tối ưu)
+Cho `mclust` tự tìm số cụm tối ưu (G = 1..9) thay vì fix cứng G=3.
+```{r bic-selection_p3, fig.width=8, fig.height=5}
+gmm_bic <- mclustBIC(df_train$PC1_KF, G = 1:9)
+plot(gmm_bic, main = "BIC Model Selection - Tìm số cụm tối ưu trên PC1 Kalman")
+summary(gmm_bic)
+```
+
+### Confidence Ellipses 95% trên không gian PC1–PC2
+```{r confidence-ellipses_p3, fig.width=8, fig.height=6}
+df_train$GMM_Label <- as.factor(gmm_kf$classification)
+
+ggplot(df_train, aes(x = PC1_KF, y = PC2, color = GMM_Label)) +
+  geom_point(alpha = 0.15, size = 0.5) +
+  stat_ellipse(level = 0.95, linewidth = 1.2) +
+  theme_minimal() +
+  labs(title = "Không gian PC1–PC2 với Ellipse Tin cậy 95% theo cụm GMM",
+       subtitle = "3 vùng tin cậy tách biệt rõ ràng ⇒ PCA + GMM phân cụm hiệu quả",
+       x = "PC1 (Chỉ số Sức khỏe)", y = "PC2", color = "Cụm GMM") +
+  scale_color_brewer(palette = "Set1")
+```
+
+### Phân tích Biệt thức (Discriminant Analysis — LDA)
+Xác nhận khả năng phân tách tuyến tính giữa 3 cụm GMM trên không gian PCA.
+```{r discriminant-analysis_p3}
+lda_model <- lda(GMM_Label ~ PC1_KF + PC2 + PC3, data = df_train)
+lda_pred <- predict(lda_model)
+
+cat("\n--- PHÂN TÍCH BIỆT THỨC (LDA) ---\n")
+cat(sprintf("Tỷ lệ phân loại đúng (LDA): %.2f%%\n",
+            mean(lda_pred$class == df_train$GMM_Label) * 100))
+print(lda_model)
+```
+
+## Hồi quy Dự báo RUL & RMSE (Đánh giá trên tập TEST)
+
+### So sánh Hiệu năng Hồi quy trên tập Test
+Để so sánh công bằng việc PCA có giúp chống lại "Overfitting" (quá khớp) của Multiple Linear Regression (MLR) hay không, ta huấn luyện mô hình trên tập Train và đánh giá RMSE trên **tập Test**.
+
+Tập Test của C-MAPSS yêu cầu ta dùng chu kỳ cuối cùng của mỗi động cơ để dự đoán RUL, sau đó so sánh với bảng RUL thực tế.
+
+```{r regression_p3}
+cat("\n--- SO SÁNH HIỆU NĂNG HỒI QUY TRÊN TẬP TEST (RMSE) ---\n")
+
+# Lấy chu kỳ cuối cùng của mỗi engine trong tập Test
+df_test_last <- df_test %>% group_by(engine_id) %>% slice(n()) %>% ungroup()
+df_test_last$RUL_True <- true_rul$V1
+
+# Train Models trên tập TRAIN
+mlr_model <- lm(RUL ~ S2 + S3 + S4 + S7 + S8 + S9 + S11 + S12 + S13 + S14 + S15 + S17 + S20 + S21, data = df_train)
+
+# Do quỹ đạo PC1 có dạng cong phi tuyến (chuẩn vật lý), Hồi quy Tuyến tính bậc 1 sẽ bị sai số lớn.
+# Áp dụng Hồi quy Đa thức bậc 3 (Polynomial Regression) cho PC1 để phát huy tối đa sức mạnh.
+pcr_ma_model <- lm(RUL ~ poly(PC1_MA, 3, raw=TRUE), data = df_train)
+pcr_kf_model <- lm(RUL ~ poly(PC1_KF, 3, raw=TRUE), data = df_train)
+
+# Predict trên TẬP TEST (Last cycle)
+mlr_pred <- predict(mlr_model, df_test_last)
+pcr_ma_pred <- predict(pcr_ma_model, df_test_last)
+pcr_kf_pred <- predict(pcr_kf_model, df_test_last)
+
+cat(sprintf("1. MLR (14 biến gốc) RMSE: %.2f\n", rmse(df_test_last$RUL_True, mlr_pred)))
+cat(sprintf("2. PCR Polynomial Bậc 3 (PC1_MA) RMSE: %.2f\n", rmse(df_test_last$RUL_True, pcr_ma_pred)))
+cat(sprintf("3. PCR Polynomial Bậc 3 (PC1_KF) RMSE: %.2f\n", rmse(df_test_last$RUL_True, pcr_kf_pred)))
+```
+
+### Phân tích Phần dư (Residuals Analysis)
+Kiểm tra giả định hồi quy: phần dư phải phân tán ngẫu nhiên, không có cấu trúc.
+```{r residuals-plot_p3, fig.width=8, fig.height=4}
+df_test_last$RUL_Pred_KF <- pcr_kf_pred
+df_test_last$Residual <- df_test_last$RUL_True - df_test_last$RUL_Pred_KF
+
+ggplot(df_test_last, aes(x = RUL_Pred_KF, y = Residual)) +
+  geom_point(alpha = 0.6, color = "steelblue", size = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Phân tích Phần dư (Residuals) của mô hình PCR Kalman",
+       subtitle = "Phần dư phân tán ngẫu nhiên quanh 0 ⇒ Mô hình không bị thiên lệch",
+       x = "RUL Dự đoán (Predicted)", y = "Phần dư (Actual - Predicted)")
+```
+
+
+---
+

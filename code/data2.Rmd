@@ -1,0 +1,648 @@
+---
+title: Phân tích mối quan hệ giữa thói quen sinh hoạt và kết quả học tập của sinh
+  viên
+author: "Nhóm X"
+date: "2026-06-24"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+header-includes:
+- \usepackage{geometry}
+- \geometry{a4paper, margin=2.5cm}
+- \usepackage{setspace}
+- \setstretch{1.3}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \fancyhead[R]{\thepage}
+- \fancyhead[L]{\leftmark}
+- \renewcommand{\headrulewidth}{0.4pt}
+- \usepackage{float}
+- \floatplacement{figure}{H}
+- \floatplacement{table}{H}
+- \usepackage{caption}
+- \captionsetup{font=small, labelfont=bf}
+- \usepackage{booktabs}
+encoding: "UTF-8"
+---
+
+```{r setup, include=FALSE}
+# chunk setup
+knitr::opts_chunk$set(
+  echo       = TRUE,
+  warning    = FALSE,
+  message    = FALSE,
+  fig.align  = "center",
+  fig.width  = 6.5,
+  fig.height = 4.5,
+  out.width  = "80%",
+  dev        = "cairo_pdf"
+)
+
+```
+
+```{r libraries}
+library(dplyr)
+library(tidyr)
+library(heplots)
+library(knitr)
+library(ggplot2)
+library(factoextra)
+library(clusterSim)
+library(reshape2)
+library(broom)
+library(gtsummary)
+library(kableExtra)
+library(sandwich)
+library(janitor)
+library(cluster)
+library(corrplot)
+library(lmtest)
+library(rstatix)
+library(psych)
+library(car)
+library(MVN)
+library(patchwork)
+library(moments)
+library(emmeans)
+library(effectsize)
+```
+
+
+
+
+
+# Khám phá và Tiền xử lý dữ liệu (EDA)
+
+```{r load-data}
+df_raw <- read.csv("StudentHabitsPerformance.csv")
+```
+
+
+```{r summary-table}
+quant_vars <- c("study_hours_per_day", "social_media_hours", "netflix_hours",
+                "sleep_hours", "attendance_percentage", "exercise_frequency",
+                "mental_health_rating", "exam_score")
+summary_df <- data.frame(
+  `Biến` = quant_vars,
+  Min    = sapply(quant_vars, function(v) round(min(df_raw[[v]], na.rm = TRUE), 2)),
+  Median = sapply(quant_vars, function(v) round(median(df_raw[[v]], na.rm = TRUE), 2)),
+  Mean   = sapply(quant_vars, function(v) round(mean(df_raw[[v]], na.rm = TRUE), 2)),
+  Max    = sapply(quant_vars, function(v) round(max(df_raw[[v]], na.rm = TRUE), 2)),
+  check.names = FALSE,
+  row.names = NULL
+)
+kable(summary_df, caption = "Tóm tắt thống kê cơ bản các biến định lượng chính")
+```
+
+```{r}
+ggplot(df_raw, aes(x = exam_score)) +
+  geom_histogram(binwidth = 5,           
+                 fill = "steelblue",     
+                 color = "black",        
+                 alpha = 0.8) +         
+  theme_minimal() +                      
+  labs(title = "Biểu đồ phân phối điểm thi (Exam Score)",
+       x = "Điểm thi",
+       y = "Số lượng học sinh")
+```
+
+
+
+```{r encode-data}
+exam_score <- df_raw$exam_score
+
+df_raw$diet_quality <- factor(df_raw$diet_quality, 
+                              levels = c("Poor", "Fair", "Good"))
+df_raw$parental_education_level <- factor(df_raw$parental_education_level, 
+                                          levels = c("None", "High School", "Bachelor", "Master"))
+df_raw$internet_quality <- factor(df_raw$internet_quality, 
+                                  levels = c("Poor", "Average", "Good"))
+
+df_raw$part_time_job <- factor(df_raw$part_time_job)
+df_raw$extracurricular_participation <- factor(df_raw$extracurricular_participation)
+
+df_raw$gender <- relevel(factor(df_raw$gender), ref = "Female")
+
+df <- df_raw %>% select(-c(student_id))
+```
+
+
+
+
+
+## Đánh giá ngoại lai
+
+```{r boxplot-outliers, fig.width=6.5, fig.height=5}
+create_box <- function(data, var_name, title) {
+  ggplot(data, aes(y = .data[[var_name]])) +
+    geom_boxplot(fill = "steelblue", alpha = 0.6, outlier.colour = "red", outlier.size = 2) +
+    labs(title = title, x = "", y = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+          plot.title = element_text(size = 10, face = "bold"))
+}
+
+p1 <- create_box(df_raw, "study_hours_per_day", "Giờ tự học")
+p2 <- create_box(df_raw, "social_media_hours", "Giờ MXH")
+p3 <- create_box(df_raw, "netflix_hours", "Giờ Netflix")
+p4 <- create_box(df_raw, "attendance_percentage", "Tỷ lệ chuyên cần")
+p5 <- create_box(df_raw, "sleep_hours", "Giờ ngủ")
+p6 <- create_box(df_raw, "exam_score", "Điểm thi")
+
+(p1 | p2 | p3) / 
+(p4 | p5 | p6)
+```
+
+
+```{r scatter-outliers, fig.width=10, fig.height=7}
+scatter_vars <- c("study_hours_per_day", "social_media_hours",
+                  "netflix_hours", "attendance_percentage",
+                  "sleep_hours")
+
+scatter_df <- df_raw[, scatter_vars] %>%
+  mutate(exam_score = exam_score) %>%
+  pivot_longer(cols = -exam_score, names_to = "variable", values_to = "value")
+
+ggplot(scatter_df, aes(x = value, y = exam_score)) +
+  geom_point(alpha = 0.3, color = "#4E79A7", size = 1.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE, linewidth = 0.8) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3) +
+  labs(title = "Biểu đồ phân tán giữa các biến độc lập định lượng và Điểm thi",
+       x = "Giá trị biến độc lập", y = "Exam Score") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 11, face = "bold"))
+```
+
+
+
+## Phân tích tương quan
+
+```{r correlation-matrix, fig.width=6.5, fig.height=5}
+df_for_cor <- df %>%
+  select(-gender, -part_time_job, -extracurricular_participation) %>%
+  mutate(exam_score = exam_score) %>%
+  mutate(
+    diet_quality = as.numeric(diet_quality),
+    parental_education_level = as.numeric(parental_education_level),
+    internet_quality = as.numeric(internet_quality)
+  )
+cor_matrix <- cor(df_for_cor, method = "spearman", use = "complete.obs")
+corrplot(cor_matrix,
+         method      = "color",
+         type        = "lower",
+         tl.col      = "black",
+         tl.cex      = 0.75,
+         addCoef.col = "black",
+         number.cex  = 0.6,
+         diag        = FALSE,
+         title       = "Ma trận tương quan Spearman",
+         mar         = c(0, 0, 1, 0))
+
+
+```
+
+
+
+```{r cor-check-table}
+df_cor_check <- df %>% mutate(exam_score)
+cor_by_cell <- df_cor_check %>% group_by(part_time_job, extracurricular_participation) %>%
+  summarise(
+    n = n(),
+    r_exam_mental   = cor(exam_score, mental_health_rating,   method = "spearman"),
+    r_exam_attend   = cor(exam_score, attendance_percentage,  method = "spearman"),
+    r_mental_attend = cor(mental_health_rating, attendance_percentage, method = "spearman"),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~round(.x, 3)))
+kable(cor_by_cell, 
+      col.names = c("Part-time job", "Extracurricular", "n", 
+                    "r(exam, mental)", "r(exam, attend)", "r(mental, attend)"),
+      caption = "Tương quan Spearman giữa các biến phản hồi theo từng cell 2×2")
+```
+
+
+
+
+## Đánh giá phân phối chuẩn và giả định
+
+```{r}
+df_manova <- df
+box_m_test <- boxM(cbind(exam_score, mental_health_rating, attendance_percentage) ~ 
+                   part_time_job * extracurricular_participation, 
+                   data = df_manova)
+cat("--- Kết quả kiểm định Box's M về sự đồng nhất ma trận hiệp phương sai ---\n")
+box_m_test$p.value
+```
+
+
+
+```{r}
+mahalanobis_outliers <- df_raw %>%
+  select(exam_score, mental_health_rating, attendance_percentage) %>%
+  mahalanobis_distance() %>%
+  filter(is.outlier == TRUE)
+
+# In số lượng ngoại lai
+cat("Số lượng ngoại lai đa chiều phát hiện được:", nrow(mahalanobis_outliers))
+```
+
+
+
+```{r qqplot-residuals, fig.width=6.5, fig.height=5}
+
+par(mfrow = c(1, 3))
+qqnorm(df_manova$exam_score,        main = "Q-Q: exam_score",        col = "steelblue", pch = 16, cex = 0.5)
+qqline(df_manova$exam_score,        col = "red", lwd = 1.5)
+
+qqnorm(df_manova$mental_health_rating, main = "Q-Q: mental_health_rating", col = "steelblue", pch = 16, cex = 0.5)
+qqline(df_manova$mental_health_rating, col = "red", lwd = 1.5)
+
+qqnorm(df_manova$attendance_percentage, main = "Q-Q: attendance_percentage", col = "steelblue", pch = 16, cex = 0.5)
+qqline(df_manova$attendance_percentage, col = "red", lwd = 1.5)
+par(mfrow = c(1, 1))
+```
+
+
+
+
+```{r}
+df_scaled <- df %>%
+  select(where(is.numeric)) %>% 
+  na.omit() %>% 
+  scale() %>%
+  as.data.frame()
+
+df_kmeans <- df_scaled %>% select(study_hours_per_day, social_media_hours, netflix_hours, sleep_hours, attendance_percentage) 
+
+cat("--- Chỉ số Hopkins thống kê khuynh hướng phân cụm ---\n")
+get_clust_tendency(df_kmeans, n=50, graph=FALSE)$hopkins_stat
+```
+
+
+
+## Đánh giá tính phù hợp của PCA/EFA
+
+```{r kmo-bartlett}
+df_pca_check <- df %>%
+  mutate(
+    gender                   = as.numeric(gender),
+    diet_quality             = as.numeric(diet_quality),
+    parental_education_level = as.numeric(parental_education_level),
+    internet_quality         = as.numeric(internet_quality)
+  ) %>%
+  select(age, gender, study_hours_per_day, social_media_hours, netflix_hours,
+         attendance_percentage, sleep_hours, exercise_frequency,
+         mental_health_rating, diet_quality,
+         parental_education_level, internet_quality)
+
+R_spearman <- cor(df_pca_check, method = "spearman")
+
+kmo_result <- KMO(R_spearman)
+
+bartlett_result <- cortest.bartlett(R_spearman, n = nrow(df_pca_check))
+R_spearman
+kmo_result
+bartlett_result
+```
+
+# Thực hiện Phân tích các Mô hình (Model Estimation)
+
+## 1. Phân tích phương sai đa biến (MANOVA)
+
+```{r manova-run}
+manova_model <- manova(
+  cbind(exam_score, mental_health_rating, attendance_percentage) ~ 
+  part_time_job * extracurricular_participation, 
+  data = df_manova
+)
+
+model_manova_null <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ 1, data = df_manova)
+model_manova_full <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ part_time_job*extracurricular_participation, data = df_manova)
+model_manova_null
+model_manova_null
+manova_omnibus <- anova(model_manova_null, model_manova_full, test = "Wilks")
+manova_omnibus
+```
+
+
+
+## 2. Mô hình Hồi quy Tuyến tính Đa biến (Multivariate LR)
+
+```{r mlr-omnibus}
+df_mlr <- df_raw %>%
+  select(
+    exam_score, mental_health_rating, attendance_percentage,
+    
+    age, gender, study_hours_per_day, social_media_hours, netflix_hours,
+    part_time_job, sleep_hours, diet_quality, exercise_frequency,
+    parental_education_level, internet_quality, extracurricular_participation
+  )
+
+mlr_model <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ ., data = df_mlr)
+
+model_mlr_null <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ 1,
+                 data = df_mlr)
+model_mlr_full  <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ .,
+                 data = df_mlr)
+model_mlr_null
+model_mlr_full
+mlr_omnibus <- anova(model_mlr_null, model_mlr_full, test = "Wilks")
+mlr_omnibus
+```
+
+
+
+```{r type3-wilks, results='hide'}
+type3_wilks <- Anova(mlr_model, type = "III", test.statistic = "Wilks")
+type3_wilks
+```
+
+
+```{r univariate-models, results='hide'}
+model_exam       <- lm(exam_score ~ . - mental_health_rating - attendance_percentage, 
+                       data = df_mlr)
+
+model_mental     <- lm(mental_health_rating ~ . - exam_score - attendance_percentage, 
+                       data = df_mlr)
+
+model_attendance <- lm(attendance_percentage ~ . - exam_score - mental_health_rating, 
+                       data = df_mlr)
+
+adj_r2 <- c(
+  exam       = summary(model_exam)$adj.r.squared,
+  mental     = summary(model_mental)$adj.r.squared,
+  attendance = summary(model_attendance)$adj.r.squared
+)
+adj_r2
+```
+
+
+
+```{r vif-compute, results='hide'}
+vif_vals <- vif(model_exam)
+vif_vals
+```
+
+```{r vif-summary-table}
+vif_summary <- data.frame(
+  `Số biến` = length(vif_vals),
+  `VIF nhỏ nhất` = round(min(vif_vals), 3),
+  `VIF lớn nhất` = round(max(vif_vals), 3),
+  `VIF trung bình` = round(mean(vif_vals), 3),
+  check.names = FALSE
+)
+kable(vif_summary, caption = "Tóm tắt chỉ số VIF của mô hình exam_score")
+```
+
+
+```{r}
+for (model_name in c("exam_score", "mental_health", "attendance")) {
+  
+  model <- switch(model_name,
+                  "exam_score"    = model_exam,
+                  "mental_health" = model_mental,
+                  "attendance"    = model_attendance)
+  
+  par(mfrow = c(2, 2), mar = c(4, 4, 3, 1), oma = c(0, 0, 2, 0))
+  
+  plot(model, which = c(1, 2, 3, 5))
+}
+
+par(mfrow = c(1, 1))
+
+```
+```{r}
+for (model_name in c("exam_score", "mental_health", "attendance")) {
+  
+  model <- switch(model_name,
+                  "exam_score"    = model_exam,
+                  "mental_health" = model_mental,
+                  "attendance"    = model_attendance)
+  
+  cd <- cooks.distance(model)
+  influential <- which(cd > 0.5)
+  
+  obs_text <- if (length(influential) == 0) {
+    "Khong co"
+  } else {
+    paste(influential, collapse = ", ")
+  }
+  
+  cat(sprintf("%s: Cook's D > 0.5 tại obs: %s\n", model_name, obs_text))
+}
+
+```
+
+
+
+
+```{r bp-compute, results='hide'}
+bp_exam       <- bptest(model_exam)
+bp_mental     <- bptest(model_mental)
+bp_attendance <- bptest(model_attendance)
+```
+
+```{r bp-table}
+bp_table <- data.frame(
+  `Phương trình` = c("exam_score", "mental_health_rating", "attendance_percentage"),
+  `BP` = round(c(bp_exam$statistic, bp_mental$statistic, bp_attendance$statistic), 3),
+  df   = c(bp_exam$parameter, bp_mental$parameter, bp_attendance$parameter),
+  p    = round(c(bp_exam$p.value, bp_mental$p.value, bp_attendance$p.value), 4),
+  check.names = FALSE
+)
+kable(bp_table, caption = "Kết quả kiểm định Breusch-Pagan cho ba phương trình")
+```
+
+
+
+```{r}
+
+resid_matrix <- residuals(mlr_model)
+mah_dist <- mahalanobis(
+  x      = resid_matrix,
+  center = colMeans(resid_matrix),
+  cov    = cov(resid_matrix)
+)
+
+threshold <- qchisq(0.999, df = ncol(resid_matrix))
+cat(sprintf("Ngưỡng chi-squared (df=3, α=0.001): %.4f\n", threshold))
+
+outlier_idx <- which(mah_dist > threshold)
+cat(sprintf("Số ngoại lai đa chiều phần dư: %d\n", length(outlier_idx)))
+if (length(outlier_idx) > 0) {
+  cat("Chỉ số quan sát:", paste(outlier_idx, collapse = ", "), "\n")
+  cat("Giá trị Mahalanobis:\n")
+  print(round(sort(mah_dist[outlier_idx], decreasing = TRUE), 3))
+}
+
+par(mfrow = c(1,1))
+n <- nrow(resid_matrix)
+p <- ncol(resid_matrix)
+expected <- qchisq(ppoints(n), df = p)
+plot(sort(expected), sort(mah_dist),
+     xlab = "Quantile lý thuyết Chi-squared (df=3)",
+     ylab = "Khoảng cách Mahalanobis thực tế",
+     main = "Chi-square Q-Q Plot - Phần dư Multivariate LR",
+     pch  = 16, cex = 0.6, col = "steelblue")
+abline(0, 1, col = "red", lwd = 1.5)
+abline(h = threshold, col = "orange", lty = 2, lwd = 1.2)
+text(x = min(expected) + 0.3,
+     y = threshold + 0.5,
+     labels = sprintf("Ngưỡng α=0.001 (%.1f)", threshold),
+     col = "orange", cex = 0.8, adj = 0)
+```
+
+
+```{r reset-compute, results='hide'}
+reset_exam       <- resettest(model_exam,       power = 2:3, type = "fitted")
+reset_mental     <- resettest(model_mental,     power = 2:3, type = "fitted")
+reset_attendance <- resettest(model_attendance, power = 2:3, type = "fitted")
+reset_attendance
+```
+
+```{r reset-table}
+reset_table <- data.frame(
+  `Phương trình` = c("exam_score", "mental_health_rating", "attendance_percentage"),
+  RESET = round(c(reset_exam$statistic, reset_mental$statistic, reset_attendance$statistic), 3),
+  df1   = c(reset_exam$parameter[1], reset_mental$parameter[1], reset_attendance$parameter[1]),
+  df2   = c(reset_exam$parameter[2], reset_mental$parameter[2], reset_attendance$parameter[2]),
+  p     = signif(c(reset_exam$p.value, reset_mental$p.value, reset_attendance$p.value), 3),
+  check.names = FALSE
+)
+kable(reset_table, caption = "Kết quả kiểm định Ramsey RESET cho ba phương trình")
+```
+
+
+
+
+
+
+```{r std-model, results='hide'}
+df_standardized <- df %>% mutate(exam_score)
+
+numeric_vars <- c("exam_score", "mental_health_rating", "attendance_percentage", 
+                  "age", "study_hours_per_day", "social_media_hours", 
+                  "netflix_hours", "sleep_hours", "exercise_frequency")
+
+df_standardized[numeric_vars] <- scale(df_standardized[numeric_vars])
+
+model_std <- lm(cbind(exam_score, mental_health_rating, attendance_percentage) ~ ., data = df_standardized)
+res <- residuals(model_std)
+res
+```
+
+
+
+## 3. Phân cụm K-Means
+
+```{r kmeans-elbow, fig.width=6.5, fig.height=4}
+set.seed(42)
+fviz_nbclust(df_kmeans, kmeans, method="wss")
+```
+
+```{r kmeans-eval-table}
+set.seed(123)
+km_2 <- kmeans(df_kmeans, centers = 2, nstart = 25, iter.max=100)
+km_3 <- kmeans(df_kmeans, centers = 3, nstart = 25, iter.max=100)
+km_4 <- kmeans(df_kmeans, centers = 4, nstart = 25, iter.max=100)
+set.seed(42)
+km_8 <- kmeans(df_kmeans, centers = 8, nstart = 25, iter.max=100)
+
+# Tính các chỉ số đánh giá
+eval_k <- data.frame(
+  k = c(2, 3, 4, 8),
+  WSS = round(c(km_2$tot.withinss, km_3$tot.withinss, km_4$tot.withinss, km_8$tot.withinss), 1),
+  `Davies-Bouldin` = round(c(
+    index.DB(df_kmeans, km_2$cluster)$DB,
+    index.DB(df_kmeans, km_3$cluster)$DB,
+    index.DB(df_kmeans, km_4$cluster)$DB,
+    index.DB(df_kmeans, km_8$cluster)$DB
+  ), 3),
+  `Calinski-Harabasz` = round(c(
+    index.G1(df_kmeans, km_2$cluster),
+    index.G1(df_kmeans, km_3$cluster),
+    index.G1(df_kmeans, km_4$cluster),
+    index.G1(df_kmeans, km_8$cluster)
+  ), 1),
+  Silhouette = round(c(
+    mean(silhouette(km_2$cluster, dist(df_kmeans))[, "sil_width"]),
+    mean(silhouette(km_3$cluster, dist(df_kmeans))[, "sil_width"]),
+    mean(silhouette(km_4$cluster, dist(df_kmeans))[, "sil_width"]),
+    mean(silhouette(km_8$cluster, dist(df_kmeans))[, "sil_width"])
+  ), 3),
+  check.names = FALSE
+)
+kable(eval_k, caption = "So sánh các chỉ số đánh giá phân cụm theo số cụm k")
+```
+
+
+
+```{r kmeans-profile}
+set.seed(123)
+kmeans_res <- kmeans(df_kmeans, centers=3, nstart=25, iter.max=100)
+
+df_profile <- df_raw
+df_profile$Cluster <- as.factor(kmeans_res$cluster)
+
+cluster_profile <- df_profile %>%
+  group_by(Cluster) %>%
+  summarise(
+    `Số lượng` = n(),
+    `Học tập (giờ/ngày)`  = round(mean(study_hours_per_day, na.rm = TRUE), 2),
+    `MXH (giờ/ngày)`      = round(mean(social_media_hours, na.rm = TRUE), 2),
+    `Netflix (giờ/ngày)`  = round(mean(netflix_hours, na.rm = TRUE), 2),
+    `Giấc ngủ (giờ/ngày)` = round(mean(sleep_hours, na.rm = TRUE), 2),
+    `Vận động (lần/tuần)` = round(mean(as.numeric(exercise_frequency), na.rm = TRUE), 2),
+    `Điểm thi TB` = round(mean(exam_score, na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+kable(cluster_profile, caption = "Thống kê mô tả (Profile) của các cụm K-Means (k=3)")
+```
+
+Kết quả phân cụm K-means (k=3) đã trích xuất 3 profile hành vi đặc trưng:
+
+(1) Nhóm có xu hướng 'Nỗ lực cao' với chiến lược học tập cường độ lớn, chấp nhận đánh đổi giấc ngủ để tối đa hóa điểm thi.
+
+(2) Nhóm có xu hướng 'Trì hoãn' với đặc trưng tiêu thụ truyền thông số (MXH, Netflix) cao, thời lượng học thấp, dẫn đến kết quả học tập và trạng thái tinh thần đều kém nhất.
+
+(3) Nhóm có xu hướng 'Cân bằng' thể hiện sự kỷ luật trong việc hạn chế màn hình, duy trì thời gian học và ngủ hợp lý, từ đó đạt được trạng thái tinh thần tốt nhất cùng mức điểm khá.
+
+**Lưu ý:** Chỉ số Hopkins H \approx 1 phản ánh dữ liệu có xu hướng phân cụm (tức là không phân phối hoàn toàn đồng nhất ngẫu nhiên), nhưng không đảm bảo các cụm tách biệt rõ ràng. Silhouette = 0.132 xác nhận các cụm tồn tại nhưng có sự giao thoa lớn. Hai chỉ số đo hai khía cạnh khác nhau và không mâu thuẫn.
+
+**Đánh giá hiệu quả phân cụm (One-way ANOVA) và đặc tính của dữ liệu**
+
+Để kiểm định xem điểm thi có phân hóa có ý nghĩa thống kê giữa 3 cụm hành vi hay không, kiểm định One-way ANOVA được thực hiện:
+
+- **$H_0$**: Điểm thi trung bình là đồng nhất giữa tất cả 3 cụm - $\mu_1 = \mu_2 = \mu_3$.
+
+- **$H_1$**: Tồn tại ít nhất một cặp cụm có điểm thi trung bình khác nhau có ý nghĩa thống kê.
+
+```{r anova-cluster-compute, results='hide'}
+anova_cluster <- aov(exam_score ~ Cluster, data = df_profile)
+anova_summary <- summary(anova_cluster)
+anova_summary
+```
+
+
+```{r tukey-compute}
+tukey <- TukeyHSD(anova_cluster)
+tukey
+```
+
+```{r tukey-table}
+tukey_df <- as.data.frame(tukey$Cluster)
+tukey_df$comparison <- rownames(tukey_df)
+kable(tukey_df[, c("comparison", "diff", "p adj")], 
+      col.names = c("Cặp so sánh", "Chênh lệch điểm thi", "p"),
+      caption = "Chênh lệch điểm thi trung bình giữa các cụm (Tukey HSD)")
+```
+

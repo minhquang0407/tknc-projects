@@ -1,0 +1,231 @@
+---
+title: "Phân tích Dữ liệu Sleep Health and Lifestyle (Part 1)"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    theme: united
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Phần 1: Phân tích Dữ liệu Sleep Health and Lifestyle
+
+## Khám phá và Tiền xử lý dữ liệu (EDA)
+
+```{r libraries}
+library(tidyverse)
+library(psych)
+library(car)
+library(corrplot)
+library(biotools)
+library(rstatix)
+library(ggplot2)
+library(gridExtra)
+library(factoextra)
+```
+
+```{r load-data}
+raw_data <- read.csv("SleepHealthLifestyle.csv", stringsAsFactors = FALSE)
+str(raw_data)
+summary(raw_data)
+colSums(is.na(raw_data))
+```
+
+```{r preprocess}
+cleaned_data <- raw_data %>%
+  separate(Blood.Pressure, into = c("Systolic", "Diastolic"), sep = "/", convert = TRUE)
+
+cleaned_data$Gender <- as.factor(cleaned_data$Gender)
+cleaned_data$Occupation <- as.factor(cleaned_data$Occupation)
+cleaned_data$BMI.Category <- as.factor(cleaned_data$BMI.Category)
+cleaned_data$Sleep.Disorder <- as.factor(cleaned_data$Sleep.Disorder)
+```
+
+```{r plot-scaling}
+num_data <- cleaned_data %>% select(Age, Sleep.Duration, Quality.of.Sleep, Physical.Activity.Level,
+                           Stress.Level, Heart.Rate, Daily.Steps, Systolic, Diastolic)
+
+unscaled_data <- num_data %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+p1 <- ggplot(unscaled_data, aes(x = Variable, y = Value, fill = Variable)) +
+  geom_boxplot(show.legend = FALSE, outlier.color = "red", outlier.size = 2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold")) +
+  labs(title = "Original data", y = "original value", x = "")
+
+scaled_data <- as.data.frame(scale(num_data))
+
+scaled_data_long <- scaled_data %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+p2 <- ggplot(scaled_data_long, aes(x = Variable, y = Value, fill = Variable)) +
+  geom_boxplot(show.legend = FALSE, outlier.color = "red", outlier.size = 2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold")) +
+  labs(title = "Scaled data", y = "scaled value", x = "")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+```{r correlation}
+cor_matrix <- cor(num_data, use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "upper",
+         addCoef.col = "black", number.cex = 0.7,
+         tl.col = "black", tl.srt = 45,
+         title = "Correlation Matrix", mar = c(0,0,2,0))
+```
+
+## Đánh giá tính phù hợp của Dữ liệu và Phân tích Thành phần Chính (PCA)
+
+```{r kmo-bartlett}
+kmo_results <- KMO(num_data)
+cat("KMO: ", kmo_results$MSA, "\n")
+
+bartlett_results <- cortest.bartlett(cor_matrix, n = nrow(num_data))
+print(bartlett_results)
+```
+
+```{r pca-run}
+pca_model <- prcomp(scaled_data, center = TRUE, scale. = FALSE)
+summary(pca_model)
+
+eigenvalues <- pca_model$sdev^2
+plot(eigenvalues, type = "b", xlab = "PC",
+     ylab = "Eigenvalue", main = "Scree Plot",
+     col = "blue", pch = 19, lwd = 2)
+```
+
+```{r pca-vars-12}
+pca_var_plot12 <- fviz_pca_var(
+  pca_model,
+  axes = c(1,2),
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+print(pca_var_plot12)
+```
+
+```{r pca-vars-34}
+pca_var_plot34 <- fviz_pca_var(
+  pca_model,
+  axes = c(3,4),
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+print(pca_var_plot34)
+```
+
+```{r pca-biplot}
+fviz_pca_biplot(pca_model,
+                geom.ind = "point",
+                col.ind = cleaned_data$Sleep.Disorder,
+                palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                addEllipses = TRUE,
+                legend.title = "Sleep Disorder",
+                title = "PCA Biplot: Sleep Disorder Clusters (PC1 vs PC2)",
+                col.var = "black",
+                repel = TRUE)
+```
+
+## Kiểm chứng chéo bằng Phân tích Nhân tố Khám phá (EFA)
+
+```{r efa-run}
+fa.parallel(
+  scaled_data,
+  fa = "fa",
+  fm = "ml",
+  n.iter = 100
+)
+
+efa_model <- fa(
+  scaled_data,
+  nfactors = 4,
+  rotate = "varimax",
+  fm = "ml"
+)
+
+print(efa_model)
+print(efa_model$loadings, cutoff = 0.3)
+```
+
+```{r efa-plots}
+loadings_matrix <- unclass(efa_model$loadings)
+corrplot(loadings_matrix, method = "color", type = "full",
+         addCoef.col = "black", number.cex = 0.8,
+         tl.col = "black", tl.srt = 45,
+         title = "EFA Factor Loadings Heatmap", mar = c(0,0,2,0),
+         col = colorRampPalette(c("#FC4E07", "white", "#00AFBB"))(200))
+
+print(efa_model$communality)
+
+comm_data <- data.frame(Variable = names(efa_model$communality),
+                        Communality = efa_model$communality)
+
+ggplot(comm_data, aes(x = reorder(Variable, Communality), y = Communality, fill = Communality)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+  coord_flip() +
+  scale_fill_gradient(low = "#E7B800", high = "#FC4E07") +
+  theme_minimal() +
+  labs(title = "EFA: Phương sai giải thích bởi nhân tố chung (Communality - h²)",
+       x = "Biến số (Variables)",
+       y = "Communality (h²)") +
+  geom_text(aes(label = round(Communality, 3)), hjust = -0.2, size = 3.5, fontface = "bold") +
+  scale_y_continuous(limits = c(0, 1.15), breaks = seq(0, 1, 0.2))
+```
+
+## Phân tích Phương sai Nhiều chiều (MANOVA)
+
+```{r manova-run}
+df_manova <- data.frame(
+  Sleep.Disorder = cleaned_data$Sleep.Disorder,
+  PC1 = pca_model$x[, 1],
+  PC2 = pca_model$x[, 2],
+  PC3 = pca_model$x[, 3],
+  PC4 = pca_model$x[, 4]
+)
+
+box_m_test <- boxM(df_manova[, c("PC1", "PC2", "PC3", "PC4")], df_manova$Sleep.Disorder)
+print(box_m_test)
+
+manova_res <- manova(cbind(PC1, PC2, PC3, PC4) ~ Sleep.Disorder, data = df_manova)
+summary(manova_res, test = "Pillai")
+```
+
+```{r manova-plots, fig.width=10, fig.height=8}
+df_long <- df_manova %>%
+  pivot_longer(cols = starts_with("PC"), names_to = "PC", values_to = "Score")
+
+ggplot(df_long, aes(x = Sleep.Disorder, y = Score, fill = Sleep.Disorder)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "red", outlier.size = 1.5) +
+  facet_wrap(~ PC, scales = "free_y") +
+  theme_minimal() +
+  scale_fill_manual(values = c("None" = "#00AFBB", "Insomnia" = "#E7B800", "Sleep Apnea" = "#FC4E07")) +
+  labs(title = "Phân phối Điểm số của các Thành phần chính theo Rối loạn giấc ngủ",
+       x = "Tình trạng", y = "Điểm số PC") +
+  theme(legend.position = "none",
+        strip.text = element_text(face = "bold", size = 12),
+        axis.text.x = element_text(angle = 15, hjust = 1))
+```
+
+```{r tukey-hsd}
+cat("PC1 (Giấc ngủ & Căng thẳng)\n")
+print(TukeyHSD(aov(PC1 ~ Sleep.Disorder, data = df_manova)))
+
+cat("PC2 (Tim mạch & Hoạt động thể chất)\n")
+print(TukeyHSD(aov(PC2 ~ Sleep.Disorder, data = df_manova)))
+
+cat("PC3 (Vận động & tuổi tác, huyết áp)\n")
+print(TukeyHSD(aov(PC3 ~ Sleep.Disorder, data = df_manova)))
+
+cat("PC4 (Nhịp tim & hoạt động)\n")
+print(TukeyHSD(aov(PC4 ~ Sleep.Disorder, data = df_manova)))
+```
